@@ -1,0 +1,53 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Docker Compose: Up (backend)",
+      "type": "shell",
+      "command": "docker compose -f backend/docker/docker-compose.mcp.yml up --build -d",
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "Docker Compose: Down (backend)",
+      "type": "shell",
+      "command": "docker compose -f backend/docker/docker-compose.mcp.yml down --rmi all",
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "Docker Compose: Up (new-backend)",
+      "type": "shell",
+      "command": "docker compose -f docker-compose-new-backend.yml up --build -d",
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "Docker Compose: Down (new-backend)",
+      "type": "shell",
+      "command": "docker compose -f docker-compose-new-backend.yml down --rmi all",
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    }
+  ]
+}

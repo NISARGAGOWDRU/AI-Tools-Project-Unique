@@ -1,0 +1,15 @@
+services: 
+  backend:
+    build: ./new-backend
+    image: new-backend:latest
+    ports:
+      - "8001:8001"
+    environment:
+      MCP_SERVER_URL: ""  # Empty = no MCP connection 
+      MCP_DATA_DIR: "/data"
+    volumes:
+      - mcp_data:/data
+  
+volumes:
+  mcp_data:
+    driver: local
