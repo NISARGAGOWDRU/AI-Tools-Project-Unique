@@ -102,8 +102,7 @@ async def run_pipeline(payload: RunPipelinePayload):
         raise HTTPException(status_code=400, detail="documentId is required")
 
     page_number = payload.pageNumber if payload.pageNumber and payload.pageNumber > 0 else 1
-
-    document_dir = DOCS_DIR / "document"
+    document_dir = DOCS_DIR / payload.documentId
     document_dir.mkdir(parents=True, exist_ok=True)
     page_filename = f"page_{page_number}.json"
     page_path = document_dir / page_filename
