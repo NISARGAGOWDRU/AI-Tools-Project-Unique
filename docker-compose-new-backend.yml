@@ -8,10 +8,13 @@ services:
       MCP_SERVER_URL: "http://host.docker.internal:6277/mcp"
       MCP_DATA_DIR: "/data"
     volumes:
-      - mcp_data:/data
+      - vaqa-backend_mcp_data:/vaqa-backend_mcp_data
+      - mcp-server-data:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
   
 volumes:
-  mcp_data:
+  mcp-server-data:
+    external: true
+  vaqa-backend_mcp_data:
     driver: local
