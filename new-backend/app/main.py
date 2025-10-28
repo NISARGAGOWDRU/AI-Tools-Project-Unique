@@ -13,11 +13,8 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-
-# app-specific imports (assume these exist in your project)
 from pipeline.main import build_pipeline
-from pipeline.state import PipelineState  # keep if you use a class; otherwise treat as dict
-# from services.parse_and_save_docx import parse_and_save_docx  # uncomment if used
+from pipeline.state import PipelineState 
 
 # Load env early
 load_dotenv()
@@ -46,8 +43,6 @@ app.add_middleware(
 MCP_DATA_DIR = Path(os.getenv("MCP_DATA_DIR", "/data"))
 DOCS_DIR = MCP_DATA_DIR / "resources"
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
-
-# Pipeline placeholder (initialized on startup)
 pipeline = None
 
 
@@ -90,9 +85,6 @@ async def _write_json_file(path: Path, data: dict) -> None:
 
     await asyncio.to_thread(_sync_write)
 
-
-
-
 @app.post("/run_pipeline")
 async def run_pipeline(payload: RunPipelinePayload):
     """
@@ -133,7 +125,6 @@ async def run_pipeline(payload: RunPipelinePayload):
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     user_input = payload.query or ""
-    # If PipelineState is a class, construct it appropriately. Here we use a plain dict if that's what your pipeline expects.
     state: PipelineState | dict = {
         "user_input": user_input,
         "tool_calls": [],
@@ -143,20 +134,15 @@ async def run_pipeline(payload: RunPipelinePayload):
     thread_id = payload.thread_id or str(uuid4())
     logger.info("Invoking pipeline: thread_id=%s", thread_id)
 
-    try:
-        # Keep the same invocation pattern you used previously
+    try:   
         result = await pipeline.ainvoke(state, config={"configurable": {"thread_id": thread_id}})
     except Exception as exc:
         logger.exception("Pipeline invocation failed: %s", exc)
         raise HTTPException(status_code=500, detail="Pipeline invocation failed")
-
     return {"final_result": result}
 
 
 if __name__ == "__main__":
-    # Use 0.0.0.0 in containers; change as needed for local dev
     uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True, log_level="info")
 
-# TypeScript / Office.js reference — kept as comment for reference:
-# /// <reference types="office-js" />
-# declare const Word: any;
+
