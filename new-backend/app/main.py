@@ -53,7 +53,7 @@ class PageDocument(BaseModel):
 
 
 class RunPipelinePayload(BaseModel):
-    documentId: str
+    documentId: Optional[str] = None
     pageNumber: Optional[int] = Field(default=1, alias="pageNumber")
     totalPages: Optional[int] = Field(default=None, alias="totalPages")
     document: Optional[PageDocument] = Field(default_factory=PageDocument)
@@ -163,9 +163,8 @@ async def run_pipeline(payload: RunPipelinePayload):
     global pipeline
     logger.info(f"Received payload: documentId=%s pageNumber=%s totalPages=%s", payload.documentId, payload.pageNumber, payload.totalPages)
 
-    if not payload.documentId:
-        logger.error("documentId is missing in payload")
-        raise HTTPException(status_code=400, detail="documentId is required")
+    # Make documentId optional - use a default if not provided
+    document_id = payload.documentId or "default_document"
 
     page_number = payload.pageNumber if payload.pageNumber and payload.pageNumber > 0 else 1
 

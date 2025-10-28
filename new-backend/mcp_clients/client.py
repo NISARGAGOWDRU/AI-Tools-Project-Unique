@@ -11,7 +11,7 @@ def make_mcp_client() -> Optional[MultiServerMCPClient]:
     """
     if not MCP_URL:
         return None
-    
+
     config: dict[str, Connection] = {
         "mcp": {
             "transport": "streamable_http",
@@ -29,9 +29,24 @@ async def get_tools() -> List[Any]:
     client = make_mcp_client()
     if client is None:
         return []
-    
+
     try:
         return await client.get_tools(server_name="mcp")
+    except Exception as e:
+        print(f"Warning: Could not connect to MCP server: {e}")
+        return []
+
+async def get_resources() -> List[dict]:
+    """
+    List all resources available in the MCP server.
+    Returns empty list if MCP is not available.
+    """
+    client = make_mcp_client()
+    if client is None:
+        return []
+
+    try:
+        return await client.get_resources(server_name="mcp")
     except Exception as e:
         print(f"Warning: Could not connect to MCP server: {e}")
         return []

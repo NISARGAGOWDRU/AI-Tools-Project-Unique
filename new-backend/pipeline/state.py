@@ -17,3 +17,4 @@ class PipelineState(TypedDict, total=False):
   page_urls: Optional[Dict[str, Any]]
   summarized_page_uris: Optional[List[str]]
   document_summary: Optional[str]
+  subpart_summary_uris: List[str]
