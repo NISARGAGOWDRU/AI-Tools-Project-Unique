@@ -44,7 +44,7 @@ app.add_middleware(
 
 # Directories
 MCP_DATA_DIR = Path(os.getenv("MCP_DATA_DIR", "/data"))
-DOCS_DIR = MCP_DATA_DIR / "docs"
+DOCS_DIR = MCP_DATA_DIR / "resources"
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Pipeline placeholder (initialized on startup)
@@ -91,21 +91,6 @@ async def _write_json_file(path: Path, data: dict) -> None:
     await asyncio.to_thread(_sync_write)
 
 
-def sanitize_filename(name: str) -> str:
-    """
-    Sanitize a string to be used as a filename or directory name.
-    - Replaces spaces with underscores.
-    - Removes characters that are not alphanumeric, underscore, or hyphen.
-    - Limits the length to 200 characters.
-    """
-    if not name:
-        return ""
-    # Replace spaces with underscores
-    name = name.replace(" ", "_")
-    # Remove invalid characters
-    name = re.sub(r'[^\w\-_]', '', name)
-    # Limit length
-    return name[:200]
 
 
 @app.post("/run_pipeline")
@@ -121,12 +106,7 @@ async def run_pipeline(payload: RunPipelinePayload):
 
     page_number = payload.pageNumber if payload.pageNumber and payload.pageNumber > 0 else 1
 
-    # Get document title from metadata and sanitize it for use as a directory name
-    doc_title = payload.document.metadata.get("title") if payload.document and payload.document.metadata else None
-    sanitized_title = sanitize_filename(doc_title)
-    
-    # Use the sanitized title for the directory, or "document" as a fallback
-    document_folder_name = sanitized_title if sanitized_title else "document"
+    document_folder_name = "document"
     document_dir = DOCS_DIR / document_folder_name
     document_dir.mkdir(parents=True, exist_ok=True)
     page_filename = f"page_{page_number}.json"
