@@ -5,7 +5,7 @@
     {
       "label": "Docker Compose: Up (new-backend)",
       "type": "shell",
-      "command": "docker compose -f docker-compose-new-backend.yml up --build -d",
+      "command": "docker-compose -f docker-compose-new-backend.yml up --build -d",
       "group": "build",
       "problemMatcher": [],
       "presentation": {
@@ -17,7 +17,7 @@
     {
       "label": "Docker Compose: Down (new-backend)",
       "type": "shell",
-      "command": "docker compose -f docker-compose-new-backend.yml down --rmi all",
+      "command": "docker-compose -f docker-compose-new-backend.yml down --rmi all",
       "group": "build",
       "problemMatcher": [],
       "presentation": {
