@@ -56,6 +56,7 @@ class PageDocument(BaseModel):
 class RunPipelinePayload(BaseModel):
     documentId: str
     pageNumber: Optional[int] = Field(default=1, alias="pageNumber")
+    totalPages: Optional[int] = Field(default=None, alias="totalPages")
     document: Optional[PageDocument] = Field(default_factory=PageDocument)
     query: Optional[str] = ""
     thread_id: Optional[str] = None
@@ -90,7 +91,7 @@ async def run_pipeline(payload: RunPipelinePayload):
     """
     Accepts a payload with document page data, saves it to disk, and invokes the LangGraph pipeline.
     """
-    logger.info("Received payload: documentId=%s pageNumber=%s", payload.documentId, payload.pageNumber)
+    logger.info(f"Received payload: documentId=%s pageNumber=%s totalPages=%s", payload.documentId, payload.pageNumber, payload.totalPages)
 
     if not payload.documentId:
         logger.error("documentId is missing in payload")
