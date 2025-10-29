@@ -16,3 +16,4 @@ services:
 volumes:
   mcp-server-data:
     external: true
+  
