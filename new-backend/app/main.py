@@ -14,7 +14,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pipeline.main import build_pipeline
-from pipeline.state import PipelineState 
+from pipeline.state import PipelineState
+from services.llm import make_llm 
 
 # Load env early
 load_dotenv()
@@ -47,9 +48,7 @@ pipeline = None
 
 
 class PageDocument(BaseModel):
-    text: Optional[str] = ""
     html: Optional[str] = ""
-    ooxml: Optional[str] = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -58,15 +57,14 @@ class RunPipelinePayload(BaseModel):
     pageNumber: Optional[int] = Field(default=1, alias="pageNumber")
     totalPages: Optional[int] = Field(default=None, alias="totalPages")
     document: Optional[PageDocument] = Field(default_factory=PageDocument)
-    query: Optional[str] = ""
     thread_id: Optional[str] = None
+    query: Optional[str] = None
 
 
 @app.on_event("startup")
 async def startup_event() -> None:
     global pipeline
     logger.info("Starting pipeline build...")
-    # build_pipeline must be async - keep as you had
     pipeline = await build_pipeline()
     logger.info("Pipeline built and ready.")
 
@@ -81,10 +79,80 @@ async def _write_json_file(path: Path, data: dict) -> None:
     Write JSON to a file in a thread to avoid blocking the event loop.
     """
     def _sync_write():
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        try:
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error writing to file: {e}")
+            raise
 
     await asyncio.to_thread(_sync_write)
+
+async def _summarize_page(page_data: dict) -> str:
+    """Summarize page content using LLM"""
+    content = page_data.get("text", "").strip()
+    if not content:
+        html_content = page_data.get("html", "").strip()
+        if html_content:
+            import re
+            content = re.sub(r'<[^>]+>', ' ', html_content)
+            content = re.sub(r'\s+', ' ', content).strip()
+    
+    if not content:
+        return "No content available to summarize."
+    
+    llm = make_llm()
+    prompt = f"Please provide a concise summary of the following document content. Focus on the main points and key information:\n\nContent:\n{content}"
+    response = await llm.ainvoke(prompt)
+    return response.content
+
+async def _create_document_summary(summaries: list) -> str:
+    """Create overall document summary from page summaries"""
+    llm = make_llm()
+    
+    combined_summaries = "\n\n".join(summaries)
+    max_chars = 3000 * 4  
+    
+    if len(combined_summaries) <= max_chars:
+        prompt = f"Create a comprehensive document summary from these page summaries:\n\n{combined_summaries}"
+        response = await llm.ainvoke(prompt)
+        return response.content
+    
+    # If too long, process in chunks and combine
+    logger.info("Processing summaries in chunks due to length")
+    chunk_summaries = []
+    chunk_size = max_chars // 2  
+    
+    current_chunk = []
+    current_length = 0
+    
+    for summary in summaries:
+        summary_length = len(summary) + 2  
+        if current_length + summary_length > chunk_size and current_chunk:
+            # Process current chunk
+            chunk_text = "\n\n".join(current_chunk)
+            prompt = f"Summarize these page summaries concisely:\n\n{chunk_text}"
+            response = await llm.ainvoke(prompt)
+            chunk_summaries.append(response.content)
+            
+            current_chunk = [summary]
+            current_length = summary_length
+        else:
+            current_chunk.append(summary)
+            current_length += summary_length
+    
+    # Process final chunk
+    if current_chunk:
+        chunk_text = "\n\n".join(current_chunk)
+        prompt = f"Summarize these page summaries concisely:\n\n{chunk_text}"
+        response = await llm.ainvoke(prompt)
+        chunk_summaries.append(response.content)
+    
+    # Combine chunk summaries into final document summary
+    final_combined = "\n\n".join(chunk_summaries)
+    prompt = f"Create a comprehensive document summary from these section summaries:\n\n{final_combined}"
+    response = await llm.ainvoke(prompt)
+    return response.content
 
 @app.post("/run_pipeline")
 async def run_pipeline(payload: RunPipelinePayload):
@@ -100,25 +168,45 @@ async def run_pipeline(payload: RunPipelinePayload):
     page_number = payload.pageNumber if payload.pageNumber and payload.pageNumber > 0 else 1
 
     document_folder_name = "document"
-    document_dir = DOCS_DIR / document_folder_name
+    uploaded_doc_folder_name = "uploaded_doc"
+    document_dir = DOCS_DIR / document_folder_name / uploaded_doc_folder_name
     document_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create uploaded subfolder for page data
+    uploaded_dir = document_dir / "uploaded"
+    uploaded_dir.mkdir(parents=True, exist_ok=True)
+    
     page_filename = f"page_{page_number}.json"
-    page_path = document_dir / page_filename
+    page_path = uploaded_dir / page_filename
 
     page_data = {
-        "text": payload.document.text or "",
         "html": payload.document.html or "",
-        "ooxml": payload.document.ooxml or "",
         "metadata": payload.document.metadata or {},
-        "query": payload.query or "",
     }
 
     try:
         await _write_json_file(page_path, page_data)
         logger.info("Saved page data to %s", page_path)
+        
+        summarized_dir = document_dir / "summarized"
+        summarized_dir.mkdir(parents=True, exist_ok=True)
+        
+        summary_filename = f"page_{page_number}_summary.json"
+        summary_path = summarized_dir / summary_filename
+        
+        page_summary = await _summarize_page(page_data)
+        summary_data = {
+            "page_number": page_number,
+            "summary": page_summary,
+            "original_page_path": str(page_path)
+        }
+        
+        await _write_json_file(summary_path, summary_data)
+        logger.info("Saved page summary to %s", summary_path)
+        
     except Exception as exc:
-        logger.exception("Failed to save page data: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to save page data")
+        logger.exception("Failed to save page data or summary: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to save page data or summary")
 
     global pipeline
     if not pipeline:
@@ -126,20 +214,77 @@ async def run_pipeline(payload: RunPipelinePayload):
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     user_input = payload.query or ""
+    # Get all summarized page URIs
+    summarized_dir = document_dir / "summarized"
+    summarized_uris = []
+    if summarized_dir.exists():
+        summarized_uris = [str(p) for p in summarized_dir.glob("page_*_summary.json")]
+    
+    document_summary = None
+    if payload.totalPages and page_number == payload.totalPages:
+        try:
+            summaries = []
+            for uri in sorted(summarized_uris):
+                with open(uri, 'r', encoding='utf-8') as f:
+                    summary_data = json.load(f)
+                    summaries.append(summary_data["summary"])
+            
+            if summaries:
+                document_summary = await _create_document_summary(summaries)
+                logger.info("Created document summary")
+                logger.info(f"Document Summary: {document_summary}")
+                
+                # Save document summary to file
+                doc_summary_data = {
+                    "document_id": payload.documentId,
+                    "total_pages": payload.totalPages,
+                    "document_summary": document_summary
+                }
+                doc_summary_path = document_dir / "document_summary.json"
+                await _write_json_file(doc_summary_path, doc_summary_data)
+                logger.info("Saved document summary to %s", doc_summary_path)
+        except Exception as exc:
+            logger.exception("Failed to create document summary: %s", exc)
+    
     state: PipelineState | dict = {
         "user_input": user_input,
         "tool_calls": [],
         "status": "started",
+        "upload_completed": "false",
+        "document_id": payload.documentId,
+        "summarized_page_uris": summarized_uris,
+        "document_summary": document_summary,
     }
+    
+    if document_summary:
+        logger.info(f"Pipeline state updated with document_summary: {document_summary}")
 
-    thread_id = payload.thread_id or str(uuid4())
-    logger.info("Invoking pipeline: thread_id=%s", thread_id)
+    try:
+        await _write_json_file(page_path, page_data)
+        logger.info("Saved page data to %s", page_path)
+        
+        # Update page_urls with page URI
+        state["page_urls"] = state.get("page_urls", {})
+        state["page_urls"][payload.documentId] = state["page_urls"].get(payload.documentId, {})
+        state["page_urls"][payload.documentId][payload.pageNumber] = str(page_path)
 
-    try:   
+        global pipeline
+        if not pipeline:
+            logger.error("Pipeline not initialized.")
+            raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+        thread_id = payload.thread_id or str(uuid4())
+        logger.info("Invoking pipeline: thread_id=%s", thread_id)
+
         result = await pipeline.ainvoke(state, config={"configurable": {"thread_id": thread_id}})
+
+        if payload.totalPages is not None and payload.pageNumber == payload.totalPages:
+            state["upload_completed"] = "true"
+            logger.info("All pages uploaded. Setting upload_completed to True.")
+
     except Exception as exc:
-        logger.exception("Pipeline invocation failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Pipeline invocation failed")
+        logger.exception("Failed to save page data or invoke pipeline: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to save page data or invoke pipeline")
     return {"final_result": result}
 
 

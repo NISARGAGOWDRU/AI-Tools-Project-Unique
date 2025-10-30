@@ -13,3 +13,7 @@ class PipelineState(TypedDict, total=False):
   tool_calls: List[str]
   last_tool_result: Optional[Union[str, List[Union[str, Dict[str, Any]]]]]
   status: str
+  upload_completed: str
+  page_urls: Optional[Dict[str, Any]]
+  summarized_page_uris: Optional[List[str]]
+  document_summary: Optional[str]
