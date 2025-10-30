@@ -159,6 +159,7 @@ async def run_pipeline(payload: RunPipelinePayload):
     """
     Accepts a payload with document page data, saves it to disk, and invokes the LangGraph pipeline.
     """
+    global pipeline
     logger.info(f"Received payload: documentId=%s pageNumber=%s totalPages=%s", payload.documentId, payload.pageNumber, payload.totalPages)
 
     if not payload.documentId:
@@ -208,7 +209,6 @@ async def run_pipeline(payload: RunPipelinePayload):
         logger.exception("Failed to save page data or summary: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to save page data or summary")
 
-    global pipeline
     if not pipeline:
         logger.error("Pipeline not initialized.")
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
@@ -268,7 +268,6 @@ async def run_pipeline(payload: RunPipelinePayload):
         state["page_urls"][payload.documentId] = state["page_urls"].get(payload.documentId, {})
         state["page_urls"][payload.documentId][payload.pageNumber] = str(page_path)
 
-        global pipeline
         if not pipeline:
             logger.error("Pipeline not initialized.")
             raise HTTPException(status_code=503, detail="Pipeline not initialized")
