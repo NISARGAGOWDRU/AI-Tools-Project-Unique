@@ -21,13 +21,13 @@ from services.llm import make_llm
 load_dotenv()
 
 # Logging
-logger = logging.getLogger("vakils_ai")
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-handler.setFormatter(
-    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]
 )
-logger.addHandler(handler)
+logger = logging.getLogger("vakils_ai")
+
 
 # FastAPI app
 app = FastAPI(title="Vakils AI Backend")
@@ -294,5 +294,3 @@ async def run_pipeline(payload: RunPipelinePayload):
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True, log_level="info")
-
-
