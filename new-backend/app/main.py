@@ -21,13 +21,13 @@ from services.llm import make_llm
 load_dotenv()
 
 # Logging
-logger = logging.getLogger("vakils_ai")
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-handler.setFormatter(
-    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]
 )
-logger.addHandler(handler)
+logger = logging.getLogger("vakils_ai")
+
 
 # FastAPI app
 app = FastAPI(title="Vakils AI Backend")
@@ -53,7 +53,7 @@ class PageDocument(BaseModel):
 
 
 class RunPipelinePayload(BaseModel):
-    documentId: str
+    documentId: Optional[str] = None
     pageNumber: Optional[int] = Field(default=1, alias="pageNumber")
     totalPages: Optional[int] = Field(default=None, alias="totalPages")
     document: Optional[PageDocument] = Field(default_factory=PageDocument)
@@ -163,9 +163,8 @@ async def run_pipeline(payload: RunPipelinePayload):
     global pipeline
     logger.info(f"Received payload: documentId=%s pageNumber=%s totalPages=%s", payload.documentId, payload.pageNumber, payload.totalPages)
 
-    if not payload.documentId:
-        logger.error("documentId is missing in payload")
-        raise HTTPException(status_code=400, detail="documentId is required")
+    # Make documentId optional - use a default if not provided
+    document_id = payload.documentId or "default_document"
 
     page_number = payload.pageNumber if payload.pageNumber and payload.pageNumber > 0 else 1
 
@@ -295,5 +294,3 @@ async def run_pipeline(payload: RunPipelinePayload):
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True, log_level="info")
-
-
