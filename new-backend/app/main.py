@@ -59,6 +59,7 @@ class RunPipelinePayload(BaseModel):
     document: Optional[PageDocument] = Field(default_factory=PageDocument)
     thread_id: Optional[str] = None
     query: Optional[str] = None
+    triggerFromFrontend: Optional[bool] = False
 
 
 @app.on_event("startup")
@@ -204,22 +205,17 @@ async def run_pipeline(payload: RunPipelinePayload):
         
         await _write_json_file(summary_path, summary_data)
         logger.info("Saved page summary to %s", summary_path)
-        
+
     except Exception as exc:
         logger.exception("Failed to save page data or summary: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to save page data or summary")
 
-    if not pipeline:
-        logger.error("Pipeline not initialized.")
-        raise HTTPException(status_code=503, detail="Pipeline not initialized")
-
-    user_input = payload.query or ""
     # Get all summarized page URIs
     summarized_dir = document_dir / "summarized"
     summarized_uris = []
     if summarized_dir.exists():
         summarized_uris = [str(p) for p in summarized_dir.glob("page_*_summary.json")]
-    
+
     document_summary = None
     if payload.totalPages and page_number == payload.totalPages:
         try:
@@ -228,12 +224,12 @@ async def run_pipeline(payload: RunPipelinePayload):
                 with open(uri, 'r', encoding='utf-8') as f:
                     summary_data = json.load(f)
                     summaries.append(summary_data["summary"])
-            
+
             if summaries:
                 document_summary = await _create_document_summary(summaries)
                 logger.info("Created document summary")
                 logger.info(f"Document Summary: {document_summary}")
-                
+
                 # Save document summary to file
                 doc_summary_data = {
                     "document_id": payload.documentId,
@@ -245,6 +241,16 @@ async def run_pipeline(payload: RunPipelinePayload):
                 logger.info("Saved document summary to %s", doc_summary_path)
         except Exception as exc:
             logger.exception("Failed to create document summary: %s", exc)
+
+    if payload.triggerFromFrontend:
+        logger.info("Triggered from frontend — skipping LLM call.")
+        return {"message": "Document page saved successfully — no LLM call made."}
+
+    if not pipeline:
+        logger.error("Pipeline not initialized.")
+        raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+    user_input = payload.query or ""
     
     state: PipelineState | dict = {
         "user_input": user_input,
