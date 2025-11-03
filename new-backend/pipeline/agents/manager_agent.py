@@ -4,6 +4,7 @@ from langgraph.prebuilt import create_react_agent
 import re
 import json
 
+
 from services.llm import make_llm
 from mcp_clients.client import get_tools
 import logging
@@ -94,6 +95,37 @@ class ManagerAgent:
                 "detailed_analysis": f"Error occurred: {str(e)}"
             }
     
+    async def _process_chunk(self, chunk_explanations: list, chunk_num: int) -> str:
+        """Process a single chunk of explanations"""
+        chunk_text = "\n\n".join(chunk_explanations)
+        
+        prompt = f"""
+        Analyze these CFR 21 subpart compliance results (Chunk {chunk_num}):
+        
+        {chunk_text}
+        
+        Extract and preserve all key compliance information:
+        1. All requirements that were satisfied
+        2. All requirements that are missing
+        3. All recommendations provided
+        
+        Maintain all details - do not summarize or truncate.
+        """
+        
+        try:
+            result = await self.agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
+            if hasattr(result, 'content'):
+                return result.content
+            elif isinstance(result, dict) and 'messages' in result:
+                messages = result['messages']
+                for message in reversed(messages):
+                    if hasattr(message, 'content'):
+                        return message.content
+            return f"Chunk {chunk_num}: No content extracted"
+        except Exception as e:
+            logger.warning(f"Failed to process chunk {chunk_num}: {e}")
+            return f"Chunk {chunk_num}: Processing failed - {str(e)}"
+
     async def summarize_compliance(self, compliance_results: Dict[str, Any]) -> Dict[str, Any]:
         """Summarize all subpart compliance results into overall CFR 21 assessment"""
         logger.info("🔍 Manager Agent: Starting CFR 21 compliance summarization")
@@ -109,47 +141,54 @@ class ManagerAgent:
             if explanation:
                 all_explanations.append(f"**{subpart_name}**: {explanation}")
         
-        prompt = f"""
-        You are a CFR 21 compliance expert. Analyze the individual subpart compliance results and provide an overall CFR 21 compliance assessment.
-        
-        INDIVIDUAL SUBPART RESULTS:
-        {json.dumps(subpart_scores, indent=2)}
-        
-        DETAILED EXPLANATIONS:
-        {chr(10).join(all_explanations)}
-        
-        Provide a comprehensive CFR 21 compliance summary with:
-        
-        1. Calculate an overall compliance score (0-100) based on all subpart scores
-        2. Identify what requirements were satisfied across all subparts
-        3. Identify what requirements are missing across all subparts
-        4. Provide specific recommendations for improvement
-        
-        Format your response as:
-        
-        **OVERALL CFR 21 COMPLIANCE ANALYSIS**
-        
-        **SATISFIED REQUIREMENTS:**
-        [List all requirements that were met across subparts]
-        
-        **MISSING REQUIREMENTS:**
-        [List all requirements that are missing or insufficient]
-        
-        **RECOMMENDATIONS:**
-        [Specific actionable recommendations to improve compliance]
-        
-        **OVERALL COMPLIANCE SCORE: [NUMBER]/100**
-        
-        Provide detailed analysis explaining why this score was assigned and what it means for CFR 21 compliance.
-        """
-        
         try:
-            logger.info("🚀 Manager Agent: Invoking compliance summarization")
-            result = await self.agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
+            logger.info("🚀 Manager Agent: Processing explanations in chunks")
+            
+            # Process in chunks of 2 to stay within token limits
+            chunk_size = 2
+            processed_chunks = []
+            
+            for i in range(0, len(all_explanations), chunk_size):
+                chunk = all_explanations[i:i + chunk_size]
+                chunk_num = i // chunk_size + 1
+                logger.info(f"Processing chunk {chunk_num}/{(len(all_explanations) + chunk_size - 1) // chunk_size}")
+                
+                chunk_result = await self._process_chunk(chunk, chunk_num)
+                processed_chunks.append(chunk_result)
+            
+            # Combine all processed chunks
+            all_processed_content = "\n\n=== CHUNK SEPARATOR ===\n\n".join(processed_chunks)
+            
+            # Create final summary using only scores and brief processed content
+            final_prompt = f"""
+            CFR 21 Compliance Expert: Create overall assessment from processed chunks.
+            
+            SUBPART SCORES:
+            {json.dumps(subpart_scores, indent=2)}
+            
+            Based on the scores, provide:
+            
+            **OVERALL CFR 21 COMPLIANCE ANALYSIS**
+            
+            **SATISFIED REQUIREMENTS:**
+            [Key requirements met across subparts]
+            
+            **MISSING REQUIREMENTS:**
+            [Critical gaps identified]
+            
+            **RECOMMENDATIONS:**
+            [Top actionable improvements]
+            
+            **OVERALL COMPLIANCE SCORE: [Calculate average of subpart scores]/100**
+            """
+            
+            logger.info("🚀 Manager Agent: Creating final compliance summary")
+            result = await self.agent.ainvoke({"messages": [{"role": "user", "content": final_prompt}]})
             
             # Extract structured data
             summary_data = self._extract_summary_data(result)
             summary_data["subpart_scores"] = subpart_scores
+            summary_data["detailed_analysis"] = all_processed_content  # Include all chunk details
             
             logger.info(f"✅ Manager Agent: Overall CFR 21 score: {summary_data['overall_compliance_score']}/100")
             logger.info(f"📊 Manager Agent: Status: {summary_data['cfr21_status']}")
