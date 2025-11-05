@@ -4,6 +4,7 @@ from langgraph.prebuilt import create_react_agent
 import re
 import json
 
+
 from services.llm import make_llm
 from mcp_clients.client import get_tools
 import logging
@@ -94,6 +95,37 @@ class ManagerAgent:
                 "detailed_analysis": f"Error occurred: {str(e)}"
             }
     
+    async def _process_chunk(self, chunk_explanations: list, chunk_num: int) -> str:
+        """Process a single chunk of explanations"""
+        chunk_text = "\n\n".join(chunk_explanations)
+        
+        prompt = f"""
+        Analyze these CFR 21 subpart compliance results (Chunk {chunk_num}):
+        
+        {chunk_text}
+        
+        Extract and preserve all key compliance information:
+        1. All requirements that were satisfied
+        2. All requirements that are missing
+        3. All recommendations provided
+        
+        Maintain all details - do not summarize or truncate.
+        """
+        
+        try:
+            result = await self.agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
+            if hasattr(result, 'content'):
+                return result.content
+            elif isinstance(result, dict) and 'messages' in result:
+                messages = result['messages']
+                for message in reversed(messages):
+                    if hasattr(message, 'content'):
+                        return message.content
+            return f"Chunk {chunk_num}: No content extracted"
+        except Exception as e:
+            logger.warning(f"Failed to process chunk {chunk_num}: {e}")
+            return f"Chunk {chunk_num}: Processing failed - {str(e)}"
+
     async def summarize_compliance(self, compliance_results: Dict[str, Any]) -> Dict[str, Any]:
         """Summarize all subpart compliance results - CONCISE VERSION"""
         logger.info("🔍 Manager Agent: Starting CFR 21 compliance summarization")

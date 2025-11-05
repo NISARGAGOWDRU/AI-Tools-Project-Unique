@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 from pipeline.agents.subpart_agent import create_all_subpart_agents, SubpartAgent
+from pipeline.update import status_updater
 import asyncio
 import logging
 
@@ -46,6 +47,13 @@ class ComplianceCoordinator:
             # 🚀 Stagger agent starts to avoid overwhelming local LLM
             await asyncio.sleep(delay)
             logger.info(f"🚀 PARALLEL START (after {delay}s delay): {agent_name}")
+            
+            # Send progress update for each agent
+            await status_updater.send_update(
+                "conducting_compliance",
+                f"Analyzing {agent_name} compliance ({i}/{len(self.subpart_agents)})...",
+                "update"
+            )
             
             try:
                 result = await asyncio.wait_for(
