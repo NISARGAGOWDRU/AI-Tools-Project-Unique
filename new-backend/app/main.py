@@ -19,10 +19,13 @@ from typing import Optional, Dict, Any
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from pipeline.main import build_pipeline
 from pipeline.state import PipelineState
-from services.llm import make_llm 
+from pipeline.update import status_updater, send_pipeline_update, PipelineStatus
+from services.llm import make_llm
+import json 
 
 # Load env early
 load_dotenv()
@@ -114,8 +117,11 @@ async def _summarize_page(page_data: dict) -> str:
     response = await llm.ainvoke(prompt)
     return response.content
 
-async def _create_document_summary(summaries: list) -> str:
+async def _create_document_summary(summaries: list, state: PipelineState = None) -> str:
     """Create overall document summary from page summaries"""
+    if state:
+        await send_pipeline_update(state, PipelineStatus.SUMMARIZING_PAGES)
+    
     llm = make_llm()
     
     combined_summaries = "\n\n".join(summaries)
@@ -283,7 +289,8 @@ async def run_pipeline(payload: RunPipelinePayload):
                     summaries.append(summary_data["summary"])
 
             if summaries:
-                document_summary = await _create_document_summary(summaries)
+                temp_state = {"status": "processing"}
+                document_summary = await _create_document_summary(summaries, temp_state)
                 logger.info("Created document summary")
                 logger.info(f"Document Summary: {document_summary}")
 
@@ -308,7 +315,7 @@ async def run_pipeline(payload: RunPipelinePayload):
     state: PipelineState | dict = {
         "user_input": user_input,
         "tool_calls": [],
-        "status": "started",
+        "status": PipelineStatus.STARTED,
         "upload_completed": "false",
         "document_id": payload.documentId,
         "summarized_page_uris": summarized_uris,
@@ -333,6 +340,8 @@ async def run_pipeline(payload: RunPipelinePayload):
 
         thread_id = payload.thread_id or str(uuid4())
         logger.info("Invoking pipeline: thread_id=%s", thread_id)
+        
+        await send_pipeline_update(state, PipelineStatus.STARTED)
 
         result = await pipeline.ainvoke(state, config={"configurable": {"thread_id": thread_id}})
 
@@ -354,6 +363,41 @@ async def run_pipeline(payload: RunPipelinePayload):
     }
     logger.info(f"🐼 Data sent to frontend (final pipeline result):\n{_safe_json_dumps(response_data)}")
     return response_data
+
+
+@app.get("/status_stream/{thread_id}")
+async def status_stream(thread_id: str):
+    """Server-sent events endpoint for real-time status updates"""
+    async def event_generator():
+        updates_queue = asyncio.Queue()
+        
+        async def update_callback(update_data):
+            await updates_queue.put(update_data)
+        
+        status_updater.add_callback(update_callback)
+        
+        try:
+            while True:
+                try:
+                    update = await asyncio.wait_for(updates_queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(update)}\n\n"
+                except asyncio.TimeoutError:
+                    yield f"data: {{\"type\": \"heartbeat\"}}\n\n"
+        except asyncio.CancelledError:
+            logger.info(f"🦌 Status stream cancelled for thread {thread_id}")
+        finally:
+            if update_callback in status_updater.update_callbacks:
+                status_updater.update_callbacks.remove(update_callback)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
 
 
 if __name__ == "__main__":

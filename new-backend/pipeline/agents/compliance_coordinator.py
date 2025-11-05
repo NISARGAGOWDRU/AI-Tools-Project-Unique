@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 from pipeline.agents.subpart_agent import create_all_subpart_agents, SubpartAgent
+from pipeline.update import status_updater
 import asyncio
 import logging
 
@@ -38,9 +39,23 @@ class ComplianceCoordinator:
         results = []
         logger.info(f"🔄 EXECUTION START: Processing {len(self.subpart_agents)} agents sequentially")
         
+        # Send progress update
+        await status_updater.send_update(
+            "conducting_compliance", 
+            f"Analyzing compliance across {len(self.subpart_agents)} CFR 21 subparts...", 
+            "update"
+        )
+        
         for i, (agent_name, agent) in enumerate(self.subpart_agents.items(), 1):
             logger.info(f"📋 AGENT {i}/{len(self.subpart_agents)} START: {agent_name}")
             logger.info(f"🔍 Agent type: {type(agent)}")
+            
+            # Send progress update for each agent
+            await status_updater.send_update(
+                "conducting_compliance",
+                f"Analyzing {agent_name} compliance ({i}/{len(self.subpart_agents)})...",
+                "update"
+            )
             
             try:
                 logger.info(f"🚀 Calling compare_compliance for {agent_name}")
@@ -53,6 +68,13 @@ class ComplianceCoordinator:
                     score_display = f"{score}/100" if isinstance(score, int) else score
                     logger.info(f"✅ AGENT {agent_name} SUCCESS: status={status}, score={score_display}")
                     logger.info(f"📊 {agent_name} output: {str(result)[:300]}...")
+                    
+                    # Send progress update
+                    await status_updater.send_update(
+                        "conducting_compliance",
+                        f"✅ {agent_name} analysis complete (Score: {score_display})",
+                        "update"
+                    )
                 else:
                     logger.error(f"❌ AGENT {agent_name} returned None/empty result")
                     results.append({
@@ -82,6 +104,15 @@ class ComplianceCoordinator:
                 })
             
             logger.info(f"✅ AGENT {i}/{len(self.subpart_agents)} COMPLETE: {agent_name}")
+            
+            # Send overall progress update
+            completed_count = i
+            total_count = len(self.subpart_agents)
+            await status_updater.send_update(
+                "conducting_compliance",
+                f"Progress: {completed_count}/{total_count} subpart assessments completed",
+                "update"
+            )
         
         try:
             # Process results
