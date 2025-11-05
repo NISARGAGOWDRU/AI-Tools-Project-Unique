@@ -162,28 +162,22 @@ class SubpartAgent:
         """
         logger.info(f"🔍 {self.subpart_name}: Starting compliance comparison")
         
-        # 🚀 CRITICAL: Use the single MCP tool that handles everything
+        # 🚀 CRITICAL: Use the single MCP tool with simplified approach
         prompt = f"""
 You are a compliance agent for {self.subpart_name}.
 
-CRITICAL INSTRUCTIONS:
-1. You have access to ONLY ONE TOOL: "fetch_read_similarity_tool"
-2. DO NOT use any tool named "mcp_resource_tool" - it does not exist
-3. DO NOT use any tool named "read_resource" - it does not exist
-4. ONLY use "fetch_read_similarity_tool"
+You have access to ONE TOOL: "fetch_read_similarity_tool"
 
-TOOL USAGE:
-Tool name: fetch_read_similarity_tool
-Parameters:
-- uri: {self.subpart_uri}
-- document_summary: {document_summary}
+TASK: Compare the document summary against {self.subpart_name} requirements.
 
-TASK:
-1. Call fetch_read_similarity_tool with the exact parameters above
-2. Analyze the comparison results
-3. Provide assessment (MAX 150 WORDS)
+Call fetch_read_similarity_tool with these EXACT parameters:
+- action: "similarity_search"
+- uri: "{self.subpart_uri}"
+- document_summary: "{document_summary[:800]}"
+- top_k: 3
 
-OUTPUT FORMAT:
+After getting the similarity results, provide your compliance assessment:
+
 REQUIREMENTS MET:
 [2-3 items, max 40 words]
 
@@ -198,9 +192,7 @@ RECOMMENDATIONS:
 
 Final Compliance Score: [NUMBER]/100
 
-CRITICAL: End with exactly: "Final Compliance Score: [your score]/100"
-
-START NOW by calling fetch_read_similarity_tool.
+START NOW.
 """
         
         try:

@@ -42,7 +42,7 @@ class ComplianceCoordinator:
             logger.info(f"✂️ Truncated document summary from {len(document_summary)} to {max_summary_length} chars")
         
         # 🚀 NEW: Create tasks with staggered start (1 second delay between each)
-        async def run_single_agent_with_delay(agent_name: str, agent: SubpartAgent, delay: float) -> Dict[str, Any]:
+        async def run_single_agent_with_delay(agent_name: str, agent: SubpartAgent, delay: float, index: int) -> Dict[str, Any]:
             """Run a single agent with initial delay and error handling"""
             # 🚀 Stagger agent starts to avoid overwhelming local LLM
             await asyncio.sleep(delay)
@@ -51,7 +51,7 @@ class ComplianceCoordinator:
             # Send progress update for each agent
             await status_updater.send_update(
                 "conducting_compliance",
-                f"Analyzing {agent_name} compliance ({i}/{len(self.subpart_agents)})...",
+                f"Analyzing {agent_name} compliance ({index}/{len(self.subpart_agents)})...",
                 "update"
             )
             
@@ -100,8 +100,8 @@ class ComplianceCoordinator:
         
         tasks = []
         delay = 0
-        for agent_name, agent in self.subpart_agents.items():
-            task = run_single_agent_with_delay(agent_name, agent, delay)
+        for i, (agent_name, agent) in enumerate(self.subpart_agents.items(), 1):
+            task = run_single_agent_with_delay(agent_name, agent, delay, i)
             tasks.append(task)
             delay += 1.0  # 1 second delay between each agent
             logger.info(f"📋 Scheduled {agent_name} to start after {delay}s")
