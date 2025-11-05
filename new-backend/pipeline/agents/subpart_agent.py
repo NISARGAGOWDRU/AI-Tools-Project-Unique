@@ -43,24 +43,79 @@ class SubpartAgent:
             return "Unknown_Subpart"
     
     def _extract_compliance_score(self, agent_result: Any) -> int:
-        """Extract compliance score from agent result"""
+        """Extract compliance score from agent result with enhanced logging"""
         try:
+            # Log the full result for debugging
+            logger.info(f"🔍 {self.subpart_name}: Extracting score from result type: {type(agent_result)}")
+            
             if isinstance(agent_result, dict) and 'messages' in agent_result:
                 messages = agent_result['messages']
                 for message in reversed(messages):
                     if isinstance(message, AIMessage) or (isinstance(message, dict) and message.get('type') == 'ai'):
                         content = message.content if hasattr(message, 'content') else message.get('content', '')
+                        logger.info(f"🔍 {self.subpart_name}: LLM output (first 500 chars): {content[:500]}")
                         score = self._parse_score_from_text(content)
                         if score is not None:
                             return score
             
             text_content = str(agent_result)
+            logger.info(f"🔍 {self.subpart_name}: Fallback to string conversion (first 300 chars): {text_content[:300]}")
             score = self._parse_score_from_text(text_content)
             return score if score is not None else 0
             
         except Exception as e:
             logger.error(f"❌ {self.subpart_name}: Error extracting score: {e}")
             return 0
+    
+    def _parse_score_from_text(self, text: str) -> int:
+        """Parse compliance score from text using comprehensive regex patterns"""
+        if not text:
+            logger.warning(f"⚠️ {self.subpart_name}: Empty text for score extraction")
+            return None
+        
+        # Comprehensive list of score patterns
+        patterns = [
+            # Standard formats
+            r'final\s+compliance\s+score[:\s]*([0-9]+)(?:/100)?',
+            r'compliance\s+score[:\s]*([0-9]+)(?:/100)?',
+            r'score[:\s]*([0-9]+)(?:/100)',
+            
+            # Alternative phrasings
+            r'([0-9]+)\s*out\s+of\s+100',
+            r'([0-9]+)\s*/\s*100',
+            r'overall\s+score[:\s]*([0-9]+)',
+            r'rating[:\s]*([0-9]+)(?:/100)?',
+            
+            # Percentage formats
+            r'([0-9]+)%\s*(?:compliance|compliant)',
+            r'compliance[:\s]*([0-9]+)%',
+            
+            # Sentence formats
+            r'(?:score|rating)\s+(?:is|of|:)\s*([0-9]+)',
+            r'(?:assign|give|rate)\s+(?:a\s+)?(?:score|rating)\s+of\s+([0-9]+)',
+            
+            # Standalone numbers near compliance keywords
+            r'compliance.*?([0-9]+)/100',
+            r'assessment.*?([0-9]+)/100',
+            
+            # Flexible formats
+            r'(?:^|\n)\s*([0-9]+)\s*/\s*100\s*(?:$|\n)',
+            r'(?:score|rating).*?([0-9]{1,3})(?:\D|$)',
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
+            if matches:
+                try:
+                    score = int(matches[-1])  # Take last match
+                    if 0 <= score <= 100:
+                        logger.info(f"📊 {self.subpart_name}: Extracted score {score} using pattern: {pattern}")
+                        return score
+                except (ValueError, IndexError):
+                    continue
+        
+        logger.warning(f"⚠️ {self.subpart_name}: Could not extract score. Full text:\n{text}")
+        return None
     
     def _extract_compliance_explanation(self, agent_result: Any) -> str:
         """Extract detailed explanation from agent result"""
@@ -100,33 +155,6 @@ class SubpartAgent:
         
         return explanation if explanation else "Compliance assessment completed but no detailed explanation was provided."
     
-    def _parse_score_from_text(self, text: str) -> int:
-        """Parse compliance score from text using regex patterns"""
-        if not text:
-            return None
-        
-        patterns = [
-            r'(?:compliance\s*)?score[:\s]*([0-9]+)(?:/100|%)?',
-            r'([0-9]+)(?:/100|%)\s*(?:compliance|score)',
-            r'(?:rating|assessment)[:\s]*([0-9]+)(?:/100|%)?',
-            r'([0-9]+)\s*(?:out\s*of\s*100|/100)',
-            r'(?:final|overall)\s*(?:score|rating)[:\s]*([0-9]+)',
-        ]
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                try:
-                    score = int(matches[-1])  
-                    if 0 <= score <= 100:
-                        logger.info(f"📊 {self.subpart_name}: Extracted score {score} using pattern: {pattern}")
-                        return score
-                except ValueError:
-                    continue
-        
-        logger.warning(f"⚠️ {self.subpart_name}: Could not extract score from text: {text[:200]}...")
-        return None
-    
     async def compare_compliance(self, document_summary: str) -> Dict[str, Any]:
         """
         Compare document summary with subpart summary using search_similarity tool
@@ -134,40 +162,49 @@ class SubpartAgent:
         """
         logger.info(f"🔍 {self.subpart_name}: Starting compliance comparison")
         
+        # 🚀 CRITICAL: Use the single MCP tool that handles everything
         prompt = f"""
-        You are a specialized compliance agent for {self.subpart_name}.
-        
-        Your task:
-        1. First, use the read_file tool to load the subpart summary content from {self.subpart_uri}
-        2. Then use the similarity_search tool to compare the document summary with the loaded subpart content
-        3. Provide a detailed compliance assessment including:
-           - What specific requirements were met or not met
-           - What data was missing or insufficient that affected the score
-           - Why the score is high/medium/low based on the evidence
-           - Key gaps or strengths identified
-        
-        Provide your analysis in this structure:
-        
-        **COMPLIANCE ANALYSIS:**
-        - Requirements Met: [List specific requirements that were satisfied]
-        - Requirements Not Met: [List specific requirements that were missing or insufficient]
-        - Missing Data: [Identify what critical information was absent]
-        - Score Justification: [Explain why this specific score was assigned]
-        
-        **RECOMMENDATIONS:**
-        [Suggest what needs to be added or improved to increase compliance]
-        
-        IMPORTANT: End your response with:
-        "Final Compliance Score: [NUMBER]/100"
-        
-        Document Summary to analyze:
-        {document_summary}
-        
-        Start by reading the subpart file, then perform similarity comparison, and provide the detailed assessment.
-        """
+You are a compliance agent for {self.subpart_name}.
+
+CRITICAL INSTRUCTIONS:
+1. You have access to ONLY ONE TOOL: "fetch_read_similarity_tool"
+2. DO NOT use any tool named "mcp_resource_tool" - it does not exist
+3. DO NOT use any tool named "read_resource" - it does not exist
+4. ONLY use "fetch_read_similarity_tool"
+
+TOOL USAGE:
+Tool name: fetch_read_similarity_tool
+Parameters:
+- uri: {self.subpart_uri}
+- document_summary: {document_summary}
+
+TASK:
+1. Call fetch_read_similarity_tool with the exact parameters above
+2. Analyze the comparison results
+3. Provide assessment (MAX 150 WORDS)
+
+OUTPUT FORMAT:
+REQUIREMENTS MET:
+[2-3 items, max 40 words]
+
+REQUIREMENTS NOT MET:
+[2-3 items, max 40 words]
+
+MISSING DATA:
+[2-3 items, max 40 words]
+
+RECOMMENDATIONS:
+[Top 3 actions, max 30 words]
+
+Final Compliance Score: [NUMBER]/100
+
+CRITICAL: End with exactly: "Final Compliance Score: [your score]/100"
+
+START NOW by calling fetch_read_similarity_tool.
+"""
         
         try:
-            logger.info(f"🚀 {self.subpart_name}: Invoking agent with prompt")
+            logger.info(f"🚀 {self.subpart_name}: Invoking agent with explicit tool names")
             result = await self.agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
             
             logger.info(f"✅ {self.subpart_name}: Agent completed successfully")
@@ -190,12 +227,24 @@ class SubpartAgent:
             logger.error(f"❌ {self.subpart_name}: Agent failed - {type(e).__name__}: {e}")
             import traceback
             logger.error(f"❌ {self.subpart_name}: Full traceback: {traceback.format_exc()}")
+            
+            # Check if it's a model crash - provide more specific error handling
+            error_msg = str(e)
+            if "model has crashed" in error_msg.lower() or "exit code: 9" in error_msg.lower():
+                logger.error(f"❌ {self.subpart_name}: LLM model crashed - this usually indicates tool calling issues")
+                error_explanation = "LLM model crashed during compliance assessment. This may be due to incorrect tool usage or model overload."
+            elif "unknown tool" in error_msg.lower():
+                logger.error(f"❌ {self.subpart_name}: Unknown tool error - agent tried to use non-existent tool")
+                error_explanation = "Agent attempted to use a tool that doesn't exist. Tool configuration issue detected."
+            else:
+                error_explanation = f"Error occurred during compliance assessment: {str(e)}"
+            
             return {
                 "subpart": self.subpart_name,
                 "subpart_uri": self.subpart_uri,
                 "result": f"Error: {str(e)}",
                 "compliance_score": 0,
-                "compliance_explanation": f"Error occurred during compliance assessment: {str(e)}",
+                "compliance_explanation": error_explanation,
                 "status": "error"
             }
 
@@ -211,9 +260,17 @@ async def create_subpart_agent(subpart_uri: str) -> SubpartAgent:
         
         logger.info(f"🔧 Getting MCP tools for {subpart_uri}")
         tools = await get_tools()
+        logger.info(f"🔍 Available tools for {subpart_uri}: {len(tools)} tools loaded")
         if not tools:
             logger.warning(f"No MCP tools available for {subpart_uri} agent - continuing anyway")
             tools = []  
+        
+        # Debug: Log tool details before creating agent
+        logger.info(f"🔍 {subpart_uri}: Creating agent with {len(tools)} tools")
+        for i, tool in enumerate(tools):
+            tool_name = getattr(tool, 'name', 'unknown')
+            tool_type = type(tool).__name__
+            logger.info(f"🔍 {subpart_uri}: Tool {i}: name='{tool_name}', type={tool_type}")
         
         agent = create_react_agent(
             model=llm,

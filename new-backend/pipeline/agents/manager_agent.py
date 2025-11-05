@@ -27,7 +27,7 @@ async def make_manager_agent() -> Runnable:
     
     agent = create_react_agent(
         model=llm,
-        tools=tools,  # Can be empty list
+        tools=tools,
         debug=True
     )
 
@@ -80,7 +80,7 @@ class ManagerAgent:
                 "satisfied_requirements": satisfied,
                 "missing_requirements": missing,
                 "recommendations": recommendations,
-                "detailed_analysis": text
+                "detailed_analysis": text[:1500]  # 🚀 NEW: Limit to 1500 chars
             }
             
         except Exception as e:
@@ -95,61 +95,63 @@ class ManagerAgent:
             }
     
     async def summarize_compliance(self, compliance_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Summarize all subpart compliance results into overall CFR 21 assessment"""
+        """Summarize all subpart compliance results - CONCISE VERSION"""
         logger.info("🔍 Manager Agent: Starting CFR 21 compliance summarization")
         
         individual_assessments = compliance_results.get('individual_assessments', {})
         subpart_scores = {}
-        all_explanations = []
+        
+        # 🚀 NEW: Extract only scores and key points (no full explanations)
+        concise_summaries = []
         
         for subpart_name, result in individual_assessments.items():
             score = result.get('compliance_score', 0)
-            explanation = result.get('compliance_explanation', '')
             subpart_scores[subpart_name] = score
-            if explanation:
-                all_explanations.append(f"**{subpart_name}**: {explanation}")
+            
+            # Extract just the key points (first 200 chars of explanation)
+            explanation = result.get('compliance_explanation', '')[:200]
+            concise_summaries.append(f"{subpart_name}: {score}/100 - {explanation}")
         
-        prompt = f"""
-        You are a CFR 21 compliance expert. Analyze the individual subpart compliance results and provide an overall CFR 21 compliance assessment.
+        # Combine concise summaries
+        combined_text = "\n".join(concise_summaries)
         
-        INDIVIDUAL SUBPART RESULTS:
-        {json.dumps(subpart_scores, indent=2)}
+        # Calculate average score upfront
+        avg_score = sum(subpart_scores.values()) // len(subpart_scores) if subpart_scores else 0
         
-        DETAILED EXPLANATIONS:
-        {chr(10).join(all_explanations)}
-        
-        Provide a comprehensive CFR 21 compliance summary with:
-        
-        1. Calculate an overall compliance score (0-100) based on all subpart scores
-        2. Identify what requirements were satisfied across all subparts
-        3. Identify what requirements are missing across all subparts
-        4. Provide specific recommendations for improvement
-        
-        Format your response as:
-        
-        **OVERALL CFR 21 COMPLIANCE ANALYSIS**
-        
-        **SATISFIED REQUIREMENTS:**
-        [List all requirements that were met across subparts]
-        
-        **MISSING REQUIREMENTS:**
-        [List all requirements that are missing or insufficient]
-        
-        **RECOMMENDATIONS:**
-        [Specific actionable recommendations to improve compliance]
-        
-        **OVERALL COMPLIANCE SCORE: [NUMBER]/100**
-        
-        Provide detailed analysis explaining why this score was assigned and what it means for CFR 21 compliance.
-        """
+        # 🚀 NEW: Single LLM call with strict output limits
+        final_prompt = f"""
+CFR 21 Compliance Summary - BE EXTREMELY CONCISE (MAX 300 WORDS TOTAL)
+
+SUBPART SCORES:
+{json.dumps(subpart_scores, indent=2)}
+
+BRIEF DETAILS:
+{combined_text[:2000]}
+
+Provide:
+
+SATISFIED REQUIREMENTS: (max 80 words)
+[Top 5 requirements met]
+
+MISSING REQUIREMENTS: (max 80 words)
+[Top 5 critical gaps]
+
+RECOMMENDATIONS: (max 80 words)
+[Top 5 priority actions]
+
+OVERALL COMPLIANCE SCORE: {avg_score}/100
+
+Keep TOTAL response under 300 words. Be concise.
+"""
         
         try:
-            logger.info("🚀 Manager Agent: Invoking compliance summarization")
-            result = await self.agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
+            logger.info("🚀 Manager Agent: Generating concise final summary")
+            result = await self.agent.ainvoke({"messages": [{"role": "user", "content": final_prompt}]})
             
             # Extract structured data
             summary_data = self._extract_summary_data(result)
             summary_data["subpart_scores"] = subpart_scores
+            summary_data["overall_compliance_score"] = avg_score  # Use pre-calculated score
             
             logger.info(f"✅ Manager Agent: Overall CFR 21 score: {summary_data['overall_compliance_score']}/100")
             logger.info(f"📊 Manager Agent: Status: {summary_data['cfr21_status']}")
@@ -159,7 +161,7 @@ class ManagerAgent:
         except Exception as e:
             logger.error(f"❌ Manager Agent: Summarization failed - {e}")
             return {
-                "overall_compliance_score": 0,
+                "overall_compliance_score": avg_score,
                 "cfr21_status": "Analysis Failed",
                 "satisfied_requirements": "Error in analysis",
                 "missing_requirements": "Error in analysis",

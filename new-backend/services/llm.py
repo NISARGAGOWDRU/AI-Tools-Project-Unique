@@ -18,5 +18,6 @@ def make_llm():
         base_url=base_url,
         api_key=SecretStr(api_key) if api_key else None,
         temperature=0.2,
-        timeout=120
+        timeout=120,
+        max_tokens=800  # 🚀 NEW: Limit output to 800 tokens (~600 words)
     )
