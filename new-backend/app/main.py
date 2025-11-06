@@ -268,6 +268,14 @@ async def run_pipeline(payload: RunPipelinePayload):
         
         await _write_json_file(summary_path, summary_data)
         logger.info("Saved page summary to %s", summary_path)
+        
+        # Create embeddings directory and generate embeddings
+        embeddings_dir = document_dir / "embeddings"
+        embeddings_dir.mkdir(parents=True, exist_ok=True)
+        
+        from services.vector_embeddings import create_page_embeddings
+        await create_page_embeddings(page_data, page_number, embeddings_dir)
+        logger.info("Generated and saved embeddings for page %s", page_number)
 
     except Exception as exc:
         logger.exception("Failed to save page data or summary: %s", exc)
