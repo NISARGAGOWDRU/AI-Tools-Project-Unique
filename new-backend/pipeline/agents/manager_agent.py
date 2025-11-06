@@ -81,7 +81,7 @@ class ManagerAgent:
                 "satisfied_requirements": satisfied,
                 "missing_requirements": missing,
                 "recommendations": recommendations,
-                "detailed_analysis": text[:1500]  # 🚀 NEW: Limit to 1500 chars
+                "detailed_analysis": text[:1500]  
             }
             
         except Exception as e:

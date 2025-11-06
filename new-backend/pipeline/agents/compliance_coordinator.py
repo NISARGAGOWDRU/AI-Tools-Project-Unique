@@ -58,7 +58,7 @@ class ComplianceCoordinator:
             try:
                 result = await asyncio.wait_for(
                     agent.compare_compliance(truncated_summary), 
-                    timeout=180.0  # 3 minute timeout per agent
+                    timeout=300.0  
                 )
                 
                 if result:
@@ -77,10 +77,10 @@ class ComplianceCoordinator:
                     }
             
             except asyncio.TimeoutError:
-                logger.error(f"⏰ PARALLEL TIMEOUT: {agent_name} after 180 seconds")
+                logger.error(f"⏰ PARALLEL TIMEOUT: {agent_name} after 300 seconds")
                 return {
                     "subpart": agent_name,
-                    "error": "Timeout after 180 seconds",
+                    "error": "Timeout after 300 seconds",
                     "compliance_score": 0,
                     "status": "failed"
                 }
@@ -103,7 +103,7 @@ class ComplianceCoordinator:
         for i, (agent_name, agent) in enumerate(self.subpart_agents.items(), 1):
             task = run_single_agent_with_delay(agent_name, agent, delay, i)
             tasks.append(task)
-            delay += 1.0  # 1 second delay between each agent
+            delay += 1.0  
             logger.info(f"📋 Scheduled {agent_name} to start after {delay}s")
         
         # Execute all tasks concurrently (they start with delays but run in parallel)
