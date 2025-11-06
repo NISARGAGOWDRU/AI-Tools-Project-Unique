@@ -1,5 +1,12 @@
 # main.py
 import os
+import sys
+
+# Add the project root directory to the Python path to resolve local imports
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import logging
 import json
 import re
@@ -12,10 +19,13 @@ from typing import Optional, Dict, Any
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from pipeline.main import build_pipeline
 from pipeline.state import PipelineState
-from services.llm import make_llm 
+from pipeline.update import status_updater, send_pipeline_update, PipelineStatus
+from services.llm import make_llm
+import json 
 
 # Load env early
 load_dotenv()
@@ -107,8 +117,11 @@ async def _summarize_page(page_data: dict) -> str:
     response = await llm.ainvoke(prompt)
     return response.content
 
-async def _create_document_summary(summaries: list) -> str:
+async def _create_document_summary(summaries: list, state: PipelineState = None) -> str:
     """Create overall document summary from page summaries"""
+    if state:
+        await send_pipeline_update(state, PipelineStatus.SUMMARIZING_PAGES)
+    
     llm = make_llm()
     
     combined_summaries = "\n\n".join(summaries)
@@ -154,6 +167,57 @@ async def _create_document_summary(summaries: list) -> str:
     prompt = f"Create a comprehensive document summary from these section summaries:\n\n{final_combined}"
     response = await llm.ainvoke(prompt)
     return response.content
+
+def _extract_compliance_for_frontend(pipeline_result: dict) -> dict:
+    """Extract and format compliance results for frontend display"""
+    try:
+        logger.info("Extracting compliance data for frontend...")
+        
+        # Get final summary from ManagerAgent
+        final_summary = pipeline_result.get('final_compliance_summary', {})
+        if not final_summary:
+            logger.warning("No 'final_compliance_summary' found in pipeline result.")
+            return {
+                "status": "analysis_incomplete",
+                "message": "Final compliance summary was not generated."
+            }
+
+        # Extract only the final analysis from the ManagerAgent's summary
+        frontend_data = {
+            "status": "completed",
+            "overall_score": final_summary.get('overall_compliance_score', 0),
+            "compliance_status": final_summary.get('cfr21_status', 'Analysis Incomplete'),
+            "satisfied_requirements": final_summary.get('satisfied_requirements', 'Not available'),
+            "missing_requirements": final_summary.get('missing_requirements', 'Not available'),
+            "recommendations": final_summary.get('recommendations', 'Not available'),
+            "detailed_analysis": final_summary.get('detailed_analysis', 'Not available')
+        }
+
+        logger.info(f"🐼 Frontend compliance data prepared:\n{_safe_json_dumps(frontend_data)}")
+        return frontend_data
+        
+    except Exception as e:
+        logger.error(f"Error extracting compliance data for frontend: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to extract compliance data: {str(e)}"
+        }
+
+def _safe_json_dumps(data: dict, indent: int = 2) -> str:
+    """Safely dump a dictionary to a JSON string, handling non-serializable objects."""
+    def default_serializer(o):
+        if isinstance(o, (Path)):
+            return str(o)
+        try:
+            # For LangChain messages or other complex objects
+            if hasattr(o, 'dict'):
+                return o.dict()
+            return f"<<non-serializable: {type(o).__name__}>>"
+        except Exception:
+            return f"<<non-serializable: {type(o).__name__}>>"
+
+    return json.dumps(data, indent=indent, default=default_serializer, ensure_ascii=False)
+
 
 @app.post("/run_pipeline")
 async def run_pipeline(payload: RunPipelinePayload):
@@ -225,7 +289,8 @@ async def run_pipeline(payload: RunPipelinePayload):
                     summaries.append(summary_data["summary"])
 
             if summaries:
-                document_summary = await _create_document_summary(summaries)
+                temp_state = {"status": "processing"}
+                document_summary = await _create_document_summary(summaries, temp_state)
                 logger.info("Created document summary")
                 logger.info(f"Document Summary: {document_summary}")
 
@@ -241,10 +306,6 @@ async def run_pipeline(payload: RunPipelinePayload):
         except Exception as exc:
             logger.exception("Failed to create document summary: %s", exc)
 
-    if payload.triggerFromFrontend:
-        logger.info("Triggered from frontend — skipping LLM call.")
-        return {"message": "Document page saved successfully — no LLM call made."}
-
     if not pipeline:
         logger.error("Pipeline not initialized.")
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
@@ -254,7 +315,7 @@ async def run_pipeline(payload: RunPipelinePayload):
     state: PipelineState | dict = {
         "user_input": user_input,
         "tool_calls": [],
-        "status": "started",
+        "status": PipelineStatus.STARTED,
         "upload_completed": "false",
         "document_id": payload.documentId,
         "summarized_page_uris": summarized_uris,
@@ -279,6 +340,8 @@ async def run_pipeline(payload: RunPipelinePayload):
 
         thread_id = payload.thread_id or str(uuid4())
         logger.info("Invoking pipeline: thread_id=%s", thread_id)
+        
+        await send_pipeline_update(state, PipelineStatus.STARTED)
 
         result = await pipeline.ainvoke(state, config={"configurable": {"thread_id": thread_id}})
 
@@ -289,8 +352,17 @@ async def run_pipeline(payload: RunPipelinePayload):
     except Exception as exc:
         logger.exception("Failed to save page data or invoke pipeline: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to save page data or invoke pipeline")
-    return {"final_result": result}
-
+    
+    # Extract compliance results for frontend
+    compliance_data = _extract_compliance_for_frontend(result)
+    
+    response_data = {
+        "compliance_results": compliance_data,
+        "document_summary": document_summary,
+        "status": "completed"
+    }
+    logger.info(f"🐼 Data sent to frontend (final pipeline result):\n{_safe_json_dumps(response_data)}")
+    return response_data
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True, log_level="info")

@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 from pipeline.agents.subpart_agent import create_all_subpart_agents, SubpartAgent
+from pipeline.update import status_updater
 import asyncio
 import logging
 
@@ -13,7 +14,7 @@ class ComplianceCoordinator:
     
     async def assess_compliance(self, document_summary: str) -> Dict[str, Any]:
         """
-        Run all subpart agents in parallel to assess compliance
+        Run all subpart agents in PARALLEL with staggered start to assess compliance
         Returns comprehensive compliance results
         """
         if not document_summary:
@@ -30,61 +31,88 @@ class ComplianceCoordinator:
                 "status": "failed"
             }
         
-        logger.info(f"🔄 Starting compliance assessment with {len(self.subpart_agents)} specialized agents sequentially")
-        logger.info(f"� Available agents: {list(self.subpart_agents.keys())}")
+        logger.info(f"🔄 Starting PARALLEL compliance assessment with {len(self.subpart_agents)} specialized agents")
+        logger.info(f"📊 Available agents: {list(self.subpart_agents.keys())}")
         logger.info(f"📄 Document summary length: {len(document_summary)} characters")
         
-        # Run agents sequentially with comprehensive error handling
-        results = []
-        logger.info(f"🔄 EXECUTION START: Processing {len(self.subpart_agents)} agents sequentially")
+        # 🚀 Truncate document summary to reduce token usage
+        max_summary_length = 1000
+        truncated_summary = document_summary[:max_summary_length]
+        if len(document_summary) > max_summary_length:
+            logger.info(f"✂️ Truncated document summary from {len(document_summary)} to {max_summary_length} chars")
         
-        for i, (agent_name, agent) in enumerate(self.subpart_agents.items(), 1):
-            logger.info(f"📋 AGENT {i}/{len(self.subpart_agents)} START: {agent_name}")
-            logger.info(f"🔍 Agent type: {type(agent)}")
+        # 🚀 NEW: Create tasks with staggered start (1 second delay between each)
+        async def run_single_agent_with_delay(agent_name: str, agent: SubpartAgent, delay: float, index: int) -> Dict[str, Any]:
+            """Run a single agent with initial delay and error handling"""
+            # 🚀 Stagger agent starts to avoid overwhelming local LLM
+            await asyncio.sleep(delay)
+            logger.info(f"🚀 PARALLEL START (after {delay}s delay): {agent_name}")
+            
+            # Send progress update for each agent
+            await status_updater.send_update(
+                "conducting_compliance",
+                f"Analyzing {agent_name} compliance ({index}/{len(self.subpart_agents)})...",
+                "update"
+            )
             
             try:
-                logger.info(f"🚀 Calling compare_compliance for {agent_name}")
-                result = await asyncio.wait_for(agent.compare_compliance(document_summary), timeout=180.0)
+                result = await asyncio.wait_for(
+                    agent.compare_compliance(truncated_summary), 
+                    timeout=300.0  
+                )
                 
                 if result:
-                    results.append(result)
                     status = result.get('status', 'unknown')
                     score = result.get('compliance_score', 'N/A')
                     score_display = f"{score}/100" if isinstance(score, int) else score
-                    logger.info(f"✅ AGENT {agent_name} SUCCESS: status={status}, score={score_display}")
-                    logger.info(f"📊 {agent_name} output: {str(result)[:300]}...")
+                    logger.info(f"✅ PARALLEL SUCCESS: {agent_name} - status={status}, score={score_display}")
+                    return result
                 else:
-                    logger.error(f"❌ AGENT {agent_name} returned None/empty result")
-                    results.append({
+                    logger.error(f"❌ PARALLEL FAIL: {agent_name} returned None/empty result")
+                    return {
                         "subpart": agent_name,
                         "error": "Empty result returned",
                         "compliance_score": 0,
                         "status": "failed"
-                    })
-                
+                    }
+            
             except asyncio.TimeoutError:
-                logger.error(f"⏰ AGENT {agent_name} TIMEOUT after 60 seconds")
-                results.append({
+                logger.error(f"⏰ PARALLEL TIMEOUT: {agent_name} after 300 seconds")
+                return {
                     "subpart": agent_name,
-                    "error": "Timeout after 60 seconds",
+                    "error": "Timeout after 300 seconds",
                     "compliance_score": 0,
                     "status": "failed"
-                })
+                }
             except Exception as e:
-                logger.error(f"❌ AGENT {agent_name} EXCEPTION: {type(e).__name__}: {e}")
+                logger.error(f"❌ PARALLEL EXCEPTION: {agent_name} - {type(e).__name__}: {e}")
                 import traceback
                 logger.error(f"❌ {agent_name} traceback: {traceback.format_exc()}")
-                results.append({
+                return {
                     "subpart": agent_name,
                     "error": str(e),
                     "compliance_score": 0,
                     "status": "failed"
-                })
-            
-            logger.info(f"✅ AGENT {i}/{len(self.subpart_agents)} COMPLETE: {agent_name}")
+                }
         
+        # 🚀 Create tasks with 1-second delays between each agent
+        logger.info(f"🔄 PARALLEL EXECUTION START: Processing {len(self.subpart_agents)} agents with staggered starts")
+        
+        tasks = []
+        delay = 0
+        for i, (agent_name, agent) in enumerate(self.subpart_agents.items(), 1):
+            task = run_single_agent_with_delay(agent_name, agent, delay, i)
+            tasks.append(task)
+            delay += 1.0  
+            logger.info(f"📋 Scheduled {agent_name} to start after {delay}s")
+        
+        # Execute all tasks concurrently (they start with delays but run in parallel)
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        
+        logger.info(f"✅ PARALLEL EXECUTION COMPLETE: All {len(results)} agents finished")
+        
+        # Process results
         try:
-            # Process results
             compliance_results = {
                 "individual_assessments": {},
                 "summary": {
@@ -140,7 +168,6 @@ async def create_compliance_coordinator(subpart_uris: List[str]) -> ComplianceCo
         
         if not subpart_agents:
             logger.error("❌ CRITICAL: No subpart agents were created successfully")
-            # Create empty coordinator to avoid crashes
             return ComplianceCoordinator({})
         
         if len(subpart_agents) < len(subpart_uris):
