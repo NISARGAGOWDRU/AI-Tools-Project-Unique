@@ -364,41 +364,5 @@ async def run_pipeline(payload: RunPipelinePayload):
     logger.info(f"🐼 Data sent to frontend (final pipeline result):\n{_safe_json_dumps(response_data)}")
     return response_data
 
-
-@app.get("/status_stream/{thread_id}")
-async def status_stream(thread_id: str):
-    """Server-sent events endpoint for real-time status updates"""
-    async def event_generator():
-        updates_queue = asyncio.Queue()
-        
-        async def update_callback(update_data):
-            await updates_queue.put(update_data)
-        
-        status_updater.add_callback(update_callback)
-        
-        try:
-            while True:
-                try:
-                    update = await asyncio.wait_for(updates_queue.get(), timeout=30.0)
-                    yield f"data: {json.dumps(update)}\n\n"
-                except asyncio.TimeoutError:
-                    yield f"data: {{\"type\": \"heartbeat\"}}\n\n"
-        except asyncio.CancelledError:
-            logger.info(f"🦌 Status stream cancelled for thread {thread_id}")
-        finally:
-            if update_callback in status_updater.update_callbacks:
-                status_updater.update_callbacks.remove(update_callback)
-    
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/plain",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-        }
-    )
-
-
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True, log_level="info")
