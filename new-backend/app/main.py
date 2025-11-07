@@ -219,6 +219,11 @@ def _safe_json_dumps(data: dict, indent: int = 2) -> str:
     return json.dumps(data, indent=indent, default=default_serializer, ensure_ascii=False)
 
 
+async def handle_detailed_check(query_data: dict, payload: RunPipelinePayload, state: dict) -> dict:
+    """Handle detailed check requests for specific page and subpart"""
+    pass
+
+
 @app.post("/run_pipeline")
 async def run_pipeline(payload: RunPipelinePayload):
     """
@@ -226,6 +231,31 @@ async def run_pipeline(payload: RunPipelinePayload):
     """
     global pipeline
     logger.info(f"Received payload: documentId=%s pageNumber=%s totalPages=%s", payload.documentId, payload.pageNumber, payload.totalPages)
+    
+    # Check if this is a detailed check request
+    try:
+        if payload.query:
+            try:
+                query_data = json.loads(payload.query)
+                if query_data.get("action") == "detailed_check":
+                    logger.info(f"🔍 DETAILED CHECK REQUEST DETECTED:")
+                    logger.info(f"   - Page Number: {query_data.get('pages')}")
+                    logger.info(f"   - Subpart: {query_data.get('subpart')}")
+                    logger.info(f"   - Timestamp: {query_data.get('timestamp')}")
+                    
+                    # Create state for detailed check
+                    state = {
+                        "user_input": payload.query or "",
+                        "tool_calls": [],
+                        "status": PipelineStatus.STARTED,
+                        "document_id": payload.documentId,
+                    }
+                    
+                    return await handle_detailed_check(query_data, payload, state)
+            except json.JSONDecodeError:
+                pass
+    except Exception as e:
+        logger.error(f"Error checking for detailed_check action: {e}")
 
     # Make documentId optional - use a default if not provided
     document_id = payload.documentId or "default_document"
