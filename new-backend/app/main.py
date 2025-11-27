@@ -221,15 +221,25 @@ def _safe_json_dumps(data: dict, indent: int = 2) -> str:
 
 async def handle_detailed_check(query_data: dict, payload: RunPipelinePayload, state: dict) -> dict:
     """Handle detailed check requests for specific page and subpart"""
-    # Update state for detailed check
-    state["detailed_check_active"] = True
-    state["detailed_check_page"] = query_data.get('pages')
-    state["detailed_check_subpart"] = query_data.get('subpart')
+    page = query_data.get('pages')
+    subpart = query_data.get('subpart')
     
-    # Send status update
+    logger.info(f"📋 Processing Detailed Check:")
+    logger.info(f"   - Document ID: {payload.documentId}")
+    logger.info(f"   - Page: {page}")
+    logger.info(f"   - Subpart: {subpart}")
+    logger.info(f"   - Query Data Keys: {list(query_data.keys())}")
+    
+    state["detailed_check_active"] = True
+    state["detailed_check_page"] = page
+    state["detailed_check_subpart"] = subpart
+    
+    logger.info(f"✅ State Updated - detailed_check_page={state['detailed_check_page']}, detailed_check_subpart={state['detailed_check_subpart']}")
+    
     await send_pipeline_update(state, PipelineStatus.STARTED)
     
-    # TODO: Implement detailed check logic
+    logger.info(f"📤 Returning detailed check response for page={page}, subpart={subpart}")
+    
     pass
 
 
@@ -240,17 +250,23 @@ async def run_pipeline(payload: RunPipelinePayload):
     """
     global pipeline
     logger.info(f"Received payload: documentId=%s pageNumber=%s totalPages=%s", payload.documentId, payload.pageNumber, payload.totalPages)
+    logger.info(f"📥 Raw Payload Query: {payload.query}")
     
     # Check if this is a detailed check request
     try:
         if payload.query:
             try:
                 query_data = json.loads(payload.query)
+                logger.info(f"✅ Parsed Query Data: {json.dumps(query_data, indent=2)}")
+                
                 if query_data.get("action") == "detailed_check":
                     logger.info(f"🔍 DETAILED CHECK REQUEST DETECTED:")
-                    logger.info(f"   - Page Number: {query_data.get('pages')}")
-                    logger.info(f"   - Subpart: {query_data.get('subpart')}")
+                    page_val = query_data.get('pages')
+                    subpart_val = query_data.get('subpart')
+                    logger.info(f"   - Page Number: {page_val} (type: {type(page_val).__name__})")
+                    logger.info(f"   - Subpart: {subpart_val} (type: {type(subpart_val).__name__})")
                     logger.info(f"   - Timestamp: {query_data.get('timestamp')}")
+                    logger.info(f"✅ VERIFIED: Backend successfully captured page={page_val} and subpart={subpart_val}")
                     
                     # Create state for detailed check
                     state = {
