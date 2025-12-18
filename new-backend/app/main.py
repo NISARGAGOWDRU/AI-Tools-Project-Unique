@@ -55,6 +55,7 @@ MCP_DATA_DIR = Path(os.getenv("MCP_DATA_DIR", "/data"))
 DOCS_DIR = MCP_DATA_DIR / "resources"
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
 pipeline = None
+compliance_coordinator_global = None
 
 
 class PageDocument(BaseModel):
@@ -74,9 +75,9 @@ class RunPipelinePayload(BaseModel):
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    global pipeline
+    global pipeline, compliance_coordinator_global
     logger.info("Starting pipeline build...")
-    pipeline = await build_pipeline()
+    pipeline, compliance_coordinator_global = await build_pipeline()
     logger.info("Pipeline built and ready.")
 
 
@@ -219,15 +220,72 @@ def _safe_json_dumps(data: dict, indent: int = 2) -> str:
     return json.dumps(data, indent=indent, default=default_serializer, ensure_ascii=False)
 
 
-async def handle_detailed_check(query_data: dict, payload: RunPipelinePayload, state: dict) -> dict:
+async def handle_detailed_check(query_data: dict, payload: RunPipelinePayload, state: dict, compliance_coordinator) -> dict:
     """Handle detailed check requests for specific page and subpart"""
-    state["detailed_check_active"] = True
-    state["detailed_check_page"] = query_data.get('pages')
-    state["detailed_check_subpart"] = query_data.get('subpart')
+    pages = query_data.get('pages')
+    # Handle case where pages is an array [1] or a single value 1
+    page_number = pages[0] if isinstance(pages, list) and pages else pages
+    subpart_raw = query_data.get('subpart')
+    # Normalize subpart name to match agent format (e.g., 'e' -> 'Subpart_E')
+    subpart = f"Subpart_{subpart_raw.upper()}" if subpart_raw and not subpart_raw.startswith('Subpart_') else subpart_raw
+    document_id = payload.documentId or "default_document"
+    
+    logger.info(f"🔍 DETAILED CHECK: Page {page_number}, Subpart {subpart}")
+    
+    state["detailed_check_page"] = page_number
+    state["detailed_check_subpart"] = subpart
     
     await send_pipeline_update(state, PipelineStatus.STARTED)
     
-    pass
+    # Load specific page data
+    document_folder_name = "document"
+    uploaded_doc_folder_name = "uploaded_doc"
+    document_dir = DOCS_DIR / document_folder_name / uploaded_doc_folder_name
+    summarized_dir = document_dir / "summarized"
+    
+    summary_filename = f"page_{page_number}_summary.json"
+    summary_path = summarized_dir / summary_filename
+    
+    if not summary_path.exists():
+        logger.error(f"❌ Page summary not found: {summary_path}")
+        return {
+            "error": f"Page {page_number} not found",
+            "status": "failed"
+        }
+    
+    try:
+        with open(summary_path, 'r', encoding='utf-8') as f:
+            page_data = json.load(f)
+            page_content = page_data.get("summary", "")
+        
+        logger.info(f"📄 Loaded page {page_number} content: {len(page_content)} chars")
+        
+        if not compliance_coordinator:
+            logger.error("❌ No compliance coordinator available")
+            return {
+                "error": "Compliance coordinator not available",
+                "status": "failed"
+            }
+        
+        await send_pipeline_update(state, PipelineStatus.CONDUCTING_COMPLIANCE)
+        
+        # Run single agent
+        result = await compliance_coordinator.assess_single_subpart(subpart, page_content)
+        
+        # Store result in state for manager to format
+        state["detailed_check_result"] = result
+        
+        logger.info(f"✅ Agent completed: {subpart} on page {page_number}, invoking pipeline for formatting")
+        
+        # Return state to be passed to pipeline
+        return state
+        
+    except Exception as e:
+        logger.error(f"❌ DETAILED CHECK FAILED: {e}")
+        return {
+            "error": str(e),
+            "status": "failed"
+        }
 
 
 @app.post("/run_pipeline")
@@ -255,7 +313,38 @@ async def run_pipeline(payload: RunPipelinePayload):
                         "document_id": payload.documentId,
                     }
                     
-                    return await handle_detailed_check(query_data, payload, state)
+                    # Run detailed check to populate state
+                    state = await handle_detailed_check(query_data, payload, state, compliance_coordinator_global)
+                    
+                    # Check if error occurred
+                    if "error" in state:
+                        return state
+                    
+                    # Invoke pipeline with detailed check state
+                    thread_id = payload.thread_id or str(uuid4())
+                    logger.info(f"🔍 Invoking pipeline for detailed check formatting: thread_id={thread_id}")
+                    
+                    result = await pipeline.ainvoke(state, config={"configurable": {"thread_id": thread_id}})
+                    
+                    # Extract formatted result from pipeline
+                    final_summary = result.get("final_compliance_summary", {})
+                    
+                    # Format detailed check results to match regular compliance format
+                    compliance_data = {
+                        "status": "completed",
+                        "overall_score": final_summary.get("overall_score", 0),
+                        "compliance_status": final_summary.get("compliance_status", "Analysis Incomplete"),
+                        "satisfied_requirements": final_summary.get("satisfied_requirements", "Not available"),
+                        "missing_requirements": final_summary.get("missing_requirements", "Not available"),
+                        "recommendations": final_summary.get("recommendations", "Not available"),
+                        "detailed_analysis": final_summary.get("detailed_analysis", "Not available")
+                    }
+                    
+                    return {
+                        "detailed_check": True,
+                        "compliance_results": compliance_data,
+                        "status": "completed"
+                    }
             except json.JSONDecodeError:
                 pass
     except Exception as e:
@@ -396,13 +485,34 @@ async def run_pipeline(payload: RunPipelinePayload):
         raise HTTPException(status_code=500, detail="Failed to save page data or invoke pipeline")
     
     # Extract compliance results for frontend
-    compliance_data = _extract_compliance_for_frontend(result)
+    final_summary = result.get("final_compliance_summary", {})
     
-    response_data = {
-        "compliance_results": compliance_data,
-        "document_summary": document_summary,
-        "status": "completed"
-    }
+    # Check if this was a detailed check
+    if final_summary.get("detailed_check"):
+        # Format detailed check results to match regular compliance format
+        compliance_data = {
+            "status": "completed",
+            "overall_score": final_summary.get("overall_score", 0),
+            "compliance_status": final_summary.get("compliance_status", "Analysis Incomplete"),
+            "satisfied_requirements": final_summary.get("satisfied_requirements", "Not available"),
+            "missing_requirements": final_summary.get("missing_requirements", "Not available"),
+            "recommendations": final_summary.get("recommendations", "Not available"),
+            "detailed_analysis": final_summary.get("detailed_analysis", "Not available")
+        }
+        response_data = {
+            "detailed_check": True,
+            "compliance_results": compliance_data,
+            "status": "completed"
+        }
+    else:
+        # Regular full compliance
+        compliance_data = _extract_compliance_for_frontend(result)
+        response_data = {
+            "compliance_results": compliance_data,
+            "document_summary": document_summary,
+            "status": "completed"
+        }
+    
     logger.info(f"🐼 Data sent to frontend (final pipeline result):\n{_safe_json_dumps(response_data)}")
     return response_data
 

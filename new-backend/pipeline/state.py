@@ -1,4 +1,3 @@
-
 from typing import TypedDict, List, Optional, Union, Dict, Any
 
 class PipelineState(TypedDict, total=False):
@@ -20,3 +19,6 @@ class PipelineState(TypedDict, total=False):
   subpart_summary_uris: List[str]
   compliance_results: Optional[Dict[str, Any]]
   final_compliance_summary: Optional[Dict[str, Any]]
+  detailed_check_page: Optional[int]
+  detailed_check_subpart: Optional[str]
+  detailed_check_result: Optional[Dict[str, Any]]

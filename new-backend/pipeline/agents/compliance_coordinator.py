@@ -12,6 +12,38 @@ class ComplianceCoordinator:
     def __init__(self, subpart_agents: Dict[str, SubpartAgent]):
         self.subpart_agents = subpart_agents
     
+    async def assess_single_subpart(self, subpart_name: str, page_content: str) -> Dict[str, Any]:
+        """
+        Run a single subpart agent for targeted compliance check
+        Returns single subpart compliance result
+        """
+        if not page_content:
+            logger.error("❌ No page content provided")
+            return {"error": "No page content provided", "status": "failed"}
+        
+        if subpart_name not in self.subpart_agents:
+            logger.error(f"❌ Subpart agent '{subpart_name}' not found")
+            return {"error": f"Subpart '{subpart_name}' not found", "status": "failed"}
+        
+        agent = self.subpart_agents[subpart_name]
+        logger.info(f"🎯 Running targeted check: {subpart_name}")
+        
+        try:
+            result = await asyncio.wait_for(
+                agent.compare_compliance(page_content),
+                timeout=300.0
+            )
+            logger.info(f"✅ Targeted check complete: {subpart_name} - Score: {result.get('compliance_score', 'N/A')}")
+            return result
+        except Exception as e:
+            logger.error(f"❌ Targeted check failed for {subpart_name}: {e}")
+            return {
+                "subpart": subpart_name,
+                "error": str(e),
+                "compliance_score": 0,
+                "status": "failed"
+            }
+    
     async def assess_compliance(self, document_summary: str) -> Dict[str, Any]:
         """
         Run all subpart agents in PARALLEL with staggered start to assess compliance
