@@ -2,7 +2,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from pipeline.state import PipelineState
 from pipeline.agents.manager_agent import make_manager_agent, create_manager_agent
 from pipeline.agents.compliance_coordinator import create_compliance_coordinator
-from pipeline.update import send_pipeline_update, PipelineStatus
+from pipeline.update import send_pipeline_update
+from pipeline.messages import PipelineStatus
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage
 from mcp_clients.client import get_resources
@@ -179,7 +180,7 @@ async def build_pipeline():
     async def document_summary_node(state: PipelineState) -> PipelineState:
         """Node for creating document summary from pages"""
         logger.info("🦌 DOCUMENT SUMMARY NODE STARTED")
-        await send_pipeline_update(state, PipelineStatus.DOCUMENT_SUMMARIZED)
+        await send_pipeline_update(state, PipelineStatus.DOCUMENT_SUMMARY_GENERATED)
         return state
     
     # Add nodes to graph
