@@ -421,9 +421,7 @@ async def run_pipeline(payload: RunPipelinePayload):
 async def submit_comment(payload: SubmitCommentPayload):
     """
     Receive comment data from frontend and save it associated with current pipeline state.
-    Does NOT trigger model or pipeline logic - only saves the data.
     """
-    logger.info("📝 SUBMIT_COMMENT ENDPOINT CALLED")
     logger.info(f"📝 Received payload: comment='{payload.comment}', action='{payload.action}', userInput='{payload.userInput}'")
     
     try:
@@ -435,9 +433,7 @@ async def submit_comment(payload: SubmitCommentPayload):
         if payload.action not in ["ACCEPT", "REJECT", "IGNORE"]:
             raise HTTPException(status_code=400, detail="Action must be ACCEPT, REJECT, or IGNORE")
         
-        # Get current pipeline state (simplified - using latest document_id from memory)
-        # In production, this should be retrieved from active session/database
-        pipeline_state_id = "current_session"  # Placeholder for actual pipeline state ID
+        pipeline_state_id = "current_session" 
         
         # Create comment record
         comment_record = {
@@ -449,12 +445,10 @@ async def submit_comment(payload: SubmitCommentPayload):
             "timestamp": datetime.now().isoformat()
         }
         
-        # Save to storage (in-memory for now)
+        # Save to storage 
         comments_storage.append(comment_record)
-        
-        logger.info(f"✅ Comment saved successfully: ID={comment_record['id']}, Action={payload.action}")
+
         logger.info(f"📊 Total comments in storage: {len(comments_storage)}")
-        logger.info(f"💾 Stored comment record: {comment_record}")
         
         response = {
             "status": "success",
