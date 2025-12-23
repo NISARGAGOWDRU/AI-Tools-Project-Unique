@@ -141,43 +141,48 @@ async def _create_document_summary(summaries: list, state: PipelineState = None)
     if len(combined_summaries) <= max_chars:
         prompt = f"Create a comprehensive document summary from these page summaries:\n\n{combined_summaries}"
         response = await llm.ainvoke(prompt)
-        return response.content
-    
-    # If too long, process in chunks and combine
-    logger.info("Processing summaries in chunks due to length")
-    chunk_summaries = []
-    chunk_size = max_chars // 2  
-    
-    current_chunk = []
-    current_length = 0
-    
-    for summary in summaries:
-        summary_length = len(summary) + 2  
-        if current_length + summary_length > chunk_size and current_chunk:
-            # Process current chunk
+        result = response.content
+    else:
+        # If too long, process in chunks and combine
+        logger.info("Processing summaries in chunks due to length")
+        chunk_summaries = []
+        chunk_size = max_chars // 2  
+        
+        current_chunk = []
+        current_length = 0
+        
+        for summary in summaries:
+            summary_length = len(summary) + 2  
+            if current_length + summary_length > chunk_size and current_chunk:
+                # Process current chunk
+                chunk_text = "\n\n".join(current_chunk)
+                prompt = f"Summarize these page summaries concisely:\n\n{chunk_text}"
+                response = await llm.ainvoke(prompt)
+                chunk_summaries.append(response.content)
+                
+                current_chunk = [summary]
+                current_length = summary_length
+            else:
+                current_chunk.append(summary)
+                current_length += summary_length
+        
+        # Process final chunk
+        if current_chunk:
             chunk_text = "\n\n".join(current_chunk)
             prompt = f"Summarize these page summaries concisely:\n\n{chunk_text}"
             response = await llm.ainvoke(prompt)
             chunk_summaries.append(response.content)
-            
-            current_chunk = [summary]
-            current_length = summary_length
-        else:
-            current_chunk.append(summary)
-            current_length += summary_length
-    
-    # Process final chunk
-    if current_chunk:
-        chunk_text = "\n\n".join(current_chunk)
-        prompt = f"Summarize these page summaries concisely:\n\n{chunk_text}"
+        
+        # Combine chunk summaries into final document summary
+        final_combined = "\n\n".join(chunk_summaries)
+        prompt = f"Create a comprehensive document summary from these section summaries:\n\n{final_combined}"
         response = await llm.ainvoke(prompt)
-        chunk_summaries.append(response.content)
+        result = response.content
     
-    # Combine chunk summaries into final document summary
-    final_combined = "\n\n".join(chunk_summaries)
-    prompt = f"Create a comprehensive document summary from these section summaries:\n\n{final_combined}"
-    response = await llm.ainvoke(prompt)
-    return response.content
+    if state:
+        await send_pipeline_update(state, PipelineStatus.SUMMARIZING_PAGES, update_type="success")
+    
+    return result
 
 def _extract_compliance_for_frontend(pipeline_result: dict) -> dict:
     """Extract and format compliance results for frontend display"""
