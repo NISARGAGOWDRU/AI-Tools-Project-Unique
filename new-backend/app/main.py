@@ -180,7 +180,7 @@ async def _create_document_summary(summaries: list, state: PipelineState = None)
         result = response.content
     
     if state:
-        await send_pipeline_update(state, PipelineStatus.SUMMARIZING_PAGES, update_type="success")
+        await send_pipeline_update(state, PipelineStatus.PAGES_SUMMARIZED)
     
     return result
 
