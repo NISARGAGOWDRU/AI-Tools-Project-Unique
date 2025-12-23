@@ -109,7 +109,6 @@ async def build_pipeline():
     async def compliance_node(state: PipelineState) -> PipelineState:
         """Node for running compliance assessment with specialized agents"""
         logger.info("🦌 🚀 COMPLIANCE NODE STARTED")
-        await send_pipeline_update(state, PipelineStatus.CONDUCTING_COMPLIANCE)
         document_summary = state.get("document_summary")
         
         if not document_summary:
@@ -138,6 +137,8 @@ async def build_pipeline():
             state["compliance_results"] = compliance_results
             logger.info(f"🦌 ✅ COMPLIANCE NODE COMPLETED: {compliance_results.get('status')}")
             logger.info(f"🦌 📈 Results: {compliance_results.get('summary', {}).get('completed_assessments', 0)}/{compliance_results.get('summary', {}).get('total_subparts', 0)} assessments completed")
+            
+            await send_pipeline_update(state, PipelineStatus.CONDUCTING_COMPLIANCE)
             
         except Exception as e:
             logger.error(f"❌ COMPLIANCE NODE ERROR: {type(e).__name__}: {e}")

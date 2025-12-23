@@ -27,7 +27,7 @@ PROCESS_MESSAGES = {
 SUCCESS_MESSAGES = {
     PipelineStatus.PAGES_SUMMARIZED: "Pages summarized",
     PipelineStatus.DOCUMENT_SUMMARY_GENERATED: "Document summary generated",
-    PipelineStatus.CONDUCTING_COMPLIANCE: "Analyzing Subparts compliance",
+    PipelineStatus.CONDUCTING_COMPLIANCE: "Subparts compliance analysis complete",
     PipelineStatus.SUMMARIZING_COMPLIANCE: "Analysis complete",
     PipelineStatus.COMPLETED: "Document analysis complete",
 }
