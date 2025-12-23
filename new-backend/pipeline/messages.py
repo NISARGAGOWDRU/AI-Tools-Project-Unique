@@ -24,10 +24,11 @@ PROCESS_MESSAGES = {
     PipelineStatus.COMPLETED: "Finalizing document analysis...",
 }
 
+def get_compliance_message(subpart: str, current: int, total: int) -> str:
+    return f"Analyzing Subpart_{subpart} compliance ({current}/{total})..."
+
 SUCCESS_MESSAGES = {
-    PipelineStatus.PAGES_SUMMARIZED: "Pages summarized",
     PipelineStatus.DOCUMENT_SUMMARY_GENERATED: "Document summary generated",
-    PipelineStatus.CONDUCTING_COMPLIANCE: "Subparts compliance analysis complete",
-    PipelineStatus.SUMMARIZING_COMPLIANCE: "Analysis complete",
-    PipelineStatus.COMPLETED: "Document analysis complete",
+    PipelineStatus.CONDUCTING_COMPLIANCE: "Analysis complete",
+    PipelineStatus.COMPLETED: "Document analysis complete. Ready for compliance review.",
 }
