@@ -33,8 +33,8 @@ class StatusUpdater:
         logger.info(f"🦌 STATUS UPDATE: {status} - {message}")
         
         update_data = {
-            "status": status,
-            "message": message,
+            "step": status,
+            "text": message,
             "type": update_type,
             "timestamp": asyncio.get_event_loop().time()
         }
