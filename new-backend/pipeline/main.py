@@ -61,8 +61,14 @@ async def build_pipeline():
         detailed_check_result = state.get("detailed_check_result")
         if detailed_check_result:
             logger.info("🎯 DETAILED CHECK MODE: Formatting single subpart result")
-            page_num = state.get("detailed_check_page")
+            page_info = state.get("detailed_check_page")
             subpart = state.get("detailed_check_subpart")
+            
+            # Format page info for display
+            if isinstance(page_info, list):
+                page_display = f"pages {page_info}"
+            else:
+                page_display = f"page {page_info}"
             
             # Get compliance explanation and log full content
             explanation = detailed_check_result.get("compliance_explanation", "")
@@ -96,7 +102,7 @@ async def build_pipeline():
             # Format for frontend with structured output
             state["final_compliance_summary"] = {
                 "detailed_check": True,
-                "page_number": page_num,
+                "page_number": page_info,
                 "subpart": subpart,
                 "overall_score": score,
                 "compliance_status": "Compliant" if score >= 70 else "Non-Compliant",
@@ -108,7 +114,7 @@ async def build_pipeline():
             }
             
             await send_pipeline_update(state, PipelineStatus.COMPLETED)
-            logger.info(f"✅ DETAILED CHECK FORMATTED: {subpart} on page {page_num} - Score: {score}")
+            logger.info(f"✅ DETAILED CHECK FORMATTED: {subpart} on {page_display} - Score: {score}")
             return state
         
         # Regular flow for full compliance

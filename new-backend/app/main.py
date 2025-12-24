@@ -221,61 +221,89 @@ def _safe_json_dumps(data: dict, indent: int = 2) -> str:
 
 
 async def handle_detailed_check(query_data: dict, payload: RunPipelinePayload, state: dict, compliance_coordinator) -> dict:
-    """Handle detailed check requests for specific page and subpart"""
+    """Handle detailed check requests for specific page(s) and subpart"""
     pages = query_data.get('pages')
     # Handle case where pages is an array [1] or a single value 1
-    page_number = pages[0] if isinstance(pages, list) and pages else pages
+    # Handle both single page and array of pages
+    if isinstance(pages, list):
+        page_numbers = pages
+    else:
+        page_numbers = [pages] if pages else [1]
+    
     subpart_raw = query_data.get('subpart')
     # Normalize subpart name to match agent format (e.g., 'e' -> 'Subpart_E')
     subpart = f"Subpart_{subpart_raw.upper()}" if subpart_raw and not subpart_raw.startswith('Subpart_') else subpart_raw
     document_id = payload.documentId or "default_document"
     
-    logger.info(f"🔍 DETAILED CHECK: Page {page_number}, Subpart {subpart}")
+    logger.info(f"🔍 DETAILED CHECK: Pages {page_numbers}, Subpart {subpart}")
     
-    state["detailed_check_page"] = page_number
+    # Store page info in state (single page or list)
+    state["detailed_check_page"] = page_numbers[0] if len(page_numbers) == 1 else page_numbers
     state["detailed_check_subpart"] = subpart
     
     await send_pipeline_update(state, PipelineStatus.STARTED)
     
-    # Load specific page data
+    # Load page data for all specified pages
     document_folder_name = "document"
     uploaded_doc_folder_name = "uploaded_doc"
     document_dir = DOCS_DIR / document_folder_name / uploaded_doc_folder_name
     summarized_dir = document_dir / "summarized"
     
-    summary_filename = f"page_{page_number}_summary.json"
-    summary_path = summarized_dir / summary_filename
+    combined_content = []
+    missing_pages = []
     
-    if not summary_path.exists():
-        logger.error(f"❌ Page summary not found: {summary_path}")
+    for page_num in page_numbers:
+        summary_filename = f"page_{page_num}_summary.json"
+        summary_path = summarized_dir / summary_filename
+        
+        if not summary_path.exists():
+            missing_pages.append(page_num)
+            continue
+            
+        try:
+            with open(summary_path, 'r', encoding='utf-8') as f:
+                page_data = json.load(f)
+                page_content = page_data.get("summary", "")
+                combined_content.append(f"Page {page_num}: {page_content}")
+        except Exception as e:
+            logger.error(f"❌ Error loading page {page_num}: {e}")
+            missing_pages.append(page_num)
+    
+    if missing_pages:
+        logger.error(f"❌ Pages not found: {missing_pages}")
         return {
-            "error": f"Page {page_number} not found",
+            "error": f"Pages not found: {missing_pages}",
             "status": "failed"
         }
     
+    if not combined_content:
+        logger.error(f"❌ No content loaded for pages: {page_numbers}")
+        return {
+            "error": f"No content available for pages: {page_numbers}",
+            "status": "failed"
+        }
+    
+    # Combine all page content
+    final_content = "\n\n".join(combined_content)
+    logger.info(f"📄 Combined content from {len(page_numbers)} pages: {len(final_content)} chars")
+    
+    if not compliance_coordinator:
+        logger.error("❌ No compliance coordinator available")
+        return {
+            "error": "Compliance coordinator not available",
+            "status": "failed"
+        }
+    
+    await send_pipeline_update(state, PipelineStatus.CONDUCTING_COMPLIANCE)
+    
     try:
-        with open(summary_path, 'r', encoding='utf-8') as f:
-            page_data = json.load(f)
-            page_content = page_data.get("summary", "")
-        
-        logger.info(f"📄 Loaded page {page_number} content: {len(page_content)} chars")
-        
-        if not compliance_coordinator:
-            logger.error("❌ No compliance coordinator available")
-            return {
-                "error": "Compliance coordinator not available",
-                "status": "failed"
-            }
-        
-        await send_pipeline_update(state, PipelineStatus.CONDUCTING_COMPLIANCE)
-        
-        # Run single agent
-        result = await compliance_coordinator.assess_single_subpart(subpart, page_content)
+        # Run single agent with combined content
+        result = await compliance_coordinator.assess_single_subpart(subpart, final_content)
         
         # Store result in state for manager to format
         state["detailed_check_result"] = result
         
-        logger.info(f"✅ Agent completed: {subpart} on page {page_number}, invoking pipeline for formatting")
+        logger.info(f"✅ Agent completed: {subpart} on pages {page_numbers}, invoking pipeline for formatting")
         
         # Return state to be passed to pipeline
         return state
@@ -302,7 +330,7 @@ async def run_pipeline(payload: RunPipelinePayload):
                 query_data = json.loads(payload.query)
                 if query_data.get("action") == "detailed_check":
                     logger.info(f"🔍 DETAILED CHECK REQUEST DETECTED:")
-                    logger.info(f"   - Page Number: {query_data.get('pages')}")
+                    logger.info(f"   - Page Numbers: {query_data.get('pages')}")
                     logger.info(f"   - Subpart: {query_data.get('subpart')}")
                     logger.info(f"   - Timestamp: {query_data.get('timestamp')}")
                     
