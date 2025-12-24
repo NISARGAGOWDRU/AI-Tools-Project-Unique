@@ -178,19 +178,41 @@ async def build_pipeline():
         logger.info("⏭️ SKIPPING COMPLIANCE - going directly to manager")
         return "manager"
 
+    async def start_node(state: PipelineState) -> PipelineState:
+        """Initial pipeline start node"""
+        logger.info("🦌 PIPELINE STARTED")
+        await send_pipeline_update(state, PipelineStatus.STARTED)
+        return state
+    
+    async def summarize_pages_node(state: PipelineState) -> PipelineState:
+        """Node for summarizing document pages"""
+        logger.info("🦌 SUMMARIZING PAGES NODE STARTED")
+        await send_pipeline_update(state, PipelineStatus.SUMMARIZING_PAGES)
+        # Simulate page summarization work here
+        await send_pipeline_update(state, PipelineStatus.PAGES_SUMMARIZED)
+        return state
+    
     async def document_summary_node(state: PipelineState) -> PipelineState:
         """Node for creating document summary from pages"""
         logger.info("🦌 DOCUMENT SUMMARY NODE STARTED")
+        await send_pipeline_update(state, PipelineStatus.DOCUMENT_SUMMARIZING)
+        # Simulate document summary generation work here
         await send_pipeline_update(state, PipelineStatus.DOCUMENT_SUMMARY_GENERATED)
         return state
     
     # Add nodes to graph
+    graph.add_node("start", start_node)
+    graph.add_node("summarize_pages", summarize_pages_node)
     graph.add_node("document_summary", document_summary_node)
     graph.add_node("compliance", compliance_node)
     graph.add_node("manager", manager_node)
     
     # Set entry point
-    graph.set_entry_point("document_summary")
+    graph.set_entry_point("start")
+    
+    # Add edges for proper flow
+    graph.add_edge("start", "summarize_pages")
+    graph.add_edge("summarize_pages", "document_summary")
     
     # Add conditional edges
     graph.add_conditional_edges(

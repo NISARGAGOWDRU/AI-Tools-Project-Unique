@@ -5,7 +5,6 @@ class PipelineStatus(str, Enum):
     STARTED = "started"
     SUMMARIZING_PAGES = "summarizing_pages"
     PAGES_SUMMARIZED = "pages_summarized"
-    DOCUMENT_SUMMARIZING = "document_summarizing"
     DOCUMENT_SUMMARY_GENERATED = "document_summary_generated"
     CONDUCTING_COMPLIANCE = "conducting_compliance"
     SUMMARIZING_COMPLIANCE = "summarizing_compliance"
@@ -15,9 +14,7 @@ class PipelineStatus(str, Enum):
 
 PROCESS_MESSAGES = {
     PipelineStatus.STARTED: "Initializing document processing...",
-    PipelineStatus.SUMMARIZING_PAGES: "Summarizing document pages...",
     PipelineStatus.PAGES_SUMMARIZED: "Summarizing document pages...",
-    PipelineStatus.DOCUMENT_SUMMARIZING: "Generating document summary...",
     PipelineStatus.DOCUMENT_SUMMARY_GENERATED: "Generating document summary...",
     PipelineStatus.CONDUCTING_COMPLIANCE: "Analyzing Subparts compliance...",
     PipelineStatus.SUMMARIZING_COMPLIANCE: "Generating final compliance summary...",
