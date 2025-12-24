@@ -25,7 +25,8 @@ from pipeline.main import build_pipeline
 from pipeline.state import PipelineState
 from pipeline.update import status_updater, send_pipeline_update, PipelineStatus
 from services.llm import make_llm
-import json 
+import json
+from datetime import datetime 
 
 # Load env early
 load_dotenv()
@@ -56,6 +57,9 @@ DOCS_DIR = MCP_DATA_DIR / "resources"
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
 pipeline = None
 
+# In-memory storage for comments (replace with database in production)
+comments_storage = []
+
 
 class PageDocument(BaseModel):
     html: Optional[str] = ""
@@ -70,6 +74,12 @@ class RunPipelinePayload(BaseModel):
     thread_id: Optional[str] = None
     query: Optional[str] = None
     triggerFromFrontend: Optional[bool] = False
+
+
+class SubmitCommentPayload(BaseModel):
+    comment: str
+    action: str  # ACCEPT/REJECT/IGNORE
+    userInput: str
 
 
 @app.on_event("startup")
@@ -405,6 +415,66 @@ async def run_pipeline(payload: RunPipelinePayload):
     }
     logger.info(f"🐼 Data sent to frontend (final pipeline result):\n{_safe_json_dumps(response_data)}")
     return response_data
+
+
+@app.post("/submit_comment")
+async def submit_comment(payload: SubmitCommentPayload):
+    """
+    Receive comment data from frontend and save it associated with current pipeline state.
+    """
+    logger.info(f"📝 Received payload: comment='{payload.comment}', action='{payload.action}', userInput='{payload.userInput}'")
+    
+    try:
+        # Validate payload
+        if not payload.comment or not payload.action or not payload.userInput:
+            logger.error("❌ Validation failed: Missing required fields")
+            raise HTTPException(status_code=400, detail="All fields (comment, action, userInput) are required")
+        
+        if payload.action not in ["ACCEPT", "REJECT", "IGNORE"]:
+            raise HTTPException(status_code=400, detail="Action must be ACCEPT, REJECT, or IGNORE")
+        
+        pipeline_state_id = "current_session" 
+        
+        # Create comment record
+        comment_record = {
+            "id": str(uuid4()),
+            "pipeline_state_id": pipeline_state_id,
+            "comment": payload.comment,
+            "action": payload.action,
+            "user_input": payload.userInput,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Save to storage 
+        comments_storage.append(comment_record)
+
+        logger.info(f"📊 Total comments in storage: {len(comments_storage)}")
+        
+        response = {
+            "status": "success",
+            "message": "Comment saved",
+            "comment_id": comment_record["id"]
+        }
+        logger.info(f"📤 Sending response: {response}")
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving comment: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save comment")
+
+
+@app.get("/comments")
+async def get_comments():
+    """
+    Retrieve all saved comments (for testing/debugging purposes).
+    """
+    return {
+        "comments": comments_storage,
+        "total_count": len(comments_storage)
+    }
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True, log_level="info")
