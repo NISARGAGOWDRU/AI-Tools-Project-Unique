@@ -1,6 +1,5 @@
 from enum import Enum
 
-
 class PipelineStatus(str, Enum):
     STARTED = "started"
     SUMMARIZING_PAGES = "summarizing_pages"
@@ -11,7 +10,6 @@ class PipelineStatus(str, Enum):
     SUMMARIZING_COMPLIANCE = "summarizing_compliance"
     COMPLETED = "completed"
     ERROR = "error"
-
 
 PROCESS_MESSAGES = {
     PipelineStatus.STARTED: "Initializing document processing...",
