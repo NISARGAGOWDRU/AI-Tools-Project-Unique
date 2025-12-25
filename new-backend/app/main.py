@@ -23,7 +23,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from pipeline.main import build_pipeline
 from pipeline.state import PipelineState
-from pipeline.update import status_updater, send_pipeline_update, PipelineStatus
+from pipeline.update import status_updater, send_pipeline_update
+from pipeline.messages import PipelineStatus
 from services.llm import make_llm
 import json
 from datetime import datetime 
@@ -140,43 +141,48 @@ async def _create_document_summary(summaries: list, state: PipelineState = None)
     if len(combined_summaries) <= max_chars:
         prompt = f"Create a comprehensive document summary from these page summaries:\n\n{combined_summaries}"
         response = await llm.ainvoke(prompt)
-        return response.content
-    
-    # If too long, process in chunks and combine
-    logger.info("Processing summaries in chunks due to length")
-    chunk_summaries = []
-    chunk_size = max_chars // 2  
-    
-    current_chunk = []
-    current_length = 0
-    
-    for summary in summaries:
-        summary_length = len(summary) + 2  
-        if current_length + summary_length > chunk_size and current_chunk:
-            # Process current chunk
+        result = response.content
+    else:
+        # If too long, process in chunks and combine
+        logger.info("Processing summaries in chunks due to length")
+        chunk_summaries = []
+        chunk_size = max_chars // 2  
+        
+        current_chunk = []
+        current_length = 0
+        
+        for summary in summaries:
+            summary_length = len(summary) + 2  
+            if current_length + summary_length > chunk_size and current_chunk:
+                # Process current chunk
+                chunk_text = "\n\n".join(current_chunk)
+                prompt = f"Summarize these page summaries concisely:\n\n{chunk_text}"
+                response = await llm.ainvoke(prompt)
+                chunk_summaries.append(response.content)
+                
+                current_chunk = [summary]
+                current_length = summary_length
+            else:
+                current_chunk.append(summary)
+                current_length += summary_length
+        
+        # Process final chunk
+        if current_chunk:
             chunk_text = "\n\n".join(current_chunk)
             prompt = f"Summarize these page summaries concisely:\n\n{chunk_text}"
             response = await llm.ainvoke(prompt)
             chunk_summaries.append(response.content)
-            
-            current_chunk = [summary]
-            current_length = summary_length
-        else:
-            current_chunk.append(summary)
-            current_length += summary_length
-    
-    # Process final chunk
-    if current_chunk:
-        chunk_text = "\n\n".join(current_chunk)
-        prompt = f"Summarize these page summaries concisely:\n\n{chunk_text}"
+        
+        # Combine chunk summaries into final document summary
+        final_combined = "\n\n".join(chunk_summaries)
+        prompt = f"Create a comprehensive document summary from these section summaries:\n\n{final_combined}"
         response = await llm.ainvoke(prompt)
-        chunk_summaries.append(response.content)
+        result = response.content
     
-    # Combine chunk summaries into final document summary
-    final_combined = "\n\n".join(chunk_summaries)
-    prompt = f"Create a comprehensive document summary from these section summaries:\n\n{final_combined}"
-    response = await llm.ainvoke(prompt)
-    return response.content
+    if state:
+        await send_pipeline_update(state, PipelineStatus.PAGES_SUMMARIZED)
+    
+    return result
 
 def _extract_compliance_for_frontend(pipeline_result: dict) -> dict:
     """Extract and format compliance results for frontend display"""
@@ -280,17 +286,19 @@ async def run_pipeline(payload: RunPipelinePayload):
     uploaded_doc_folder_name = "uploaded_doc"
     document_dir = DOCS_DIR / document_folder_name / uploaded_doc_folder_name
     document_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create uploaded subfolder for page data
     uploaded_dir = document_dir / "uploaded"
     uploaded_dir.mkdir(parents=True, exist_ok=True)
-    
+
     page_filename = f"page_{page_number}.json"
     page_path = uploaded_dir / page_filename
 
+    # Handle case where payload.document is None
+    document = payload.document if payload.document is not None else PageDocument()
     page_data = {
-        "html": payload.document.html or "",
-        "metadata": payload.document.metadata or {},
+        "html": document.html or "",
+        "metadata": document.metadata or {},
     }
 
     try:
@@ -378,9 +386,6 @@ async def run_pipeline(payload: RunPipelinePayload):
         logger.info(f"Pipeline state updated with document_summary: {document_summary}")
 
     try:
-        await _write_json_file(page_path, page_data)
-        logger.info("Saved page data to %s", page_path)
-        
         # Update page_urls with page URI
         state["page_urls"] = state.get("page_urls", {})
         state["page_urls"][payload.documentId] = state["page_urls"].get(payload.documentId, {})
@@ -392,9 +397,10 @@ async def run_pipeline(payload: RunPipelinePayload):
 
         thread_id = payload.thread_id or str(uuid4())
         logger.info("Invoking pipeline: thread_id=%s", thread_id)
-        
+
         await send_pipeline_update(state, PipelineStatus.STARTED)
 
+        logger.info(f"Pipeline state before invoke: {state.keys()}")
         result = await pipeline.ainvoke(state, config={"configurable": {"thread_id": thread_id}})
 
         if payload.totalPages is not None and payload.pageNumber == payload.totalPages:
@@ -402,8 +408,8 @@ async def run_pipeline(payload: RunPipelinePayload):
             logger.info("All pages uploaded. Setting upload_completed to True.")
 
     except Exception as exc:
-        logger.exception("Failed to save page data or invoke pipeline: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to save page data or invoke pipeline")
+        logger.exception("Failed to invoke pipeline: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to invoke pipeline: {str(exc)}")
     
     # Extract compliance results for frontend
     compliance_data = _extract_compliance_for_frontend(result)
@@ -475,6 +481,82 @@ async def get_comments():
         "total_count": len(comments_storage)
     }
 
+@app.get("/pipeline_status")
+async def pipeline_status():
+    """
+    Server-Sent Events (SSE) endpoint for real-time pipeline status updates.
+    Clients should connect to this endpoint to receive status messages as the pipeline processes.
+    
+    Example usage in JavaScript:
+    ```javascript
+    const eventSource = new EventSource('/pipeline_status');
+    eventSource.onmessage = (event) => {
+        const update = JSON.parse(event.data);
+        console.log(update.status, update.message);
+    };
+    ```
+    """
+    async def event_generator():
+        queue = asyncio.Queue()
+        status_updater.add_sse_client(queue)
+        
+        try:
+            while True:
+                try:
+                    update = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(update)}\n\n"
+                except asyncio.TimeoutError:
+                    yield f": keepalive\n\n"
+        except asyncio.CancelledError:
+            logger.info("🦌 SSE stream cancelled by client")
+        except GeneratorExit:
+            logger.info("🦌 SSE stream closed")
+        finally:
+            status_updater.remove_sse_client(queue)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+    )
+
+
+@app.get("/events/{session_id}")
+async def events(session_id: str):
+    """
+    Server-Sent Events (SSE) endpoint for real-time pipeline status updates for a specific session.
+    """
+    async def event_generator():
+        queue = asyncio.Queue()
+        status_updater.add_sse_client(queue)
+        
+        try:
+            while True:
+                try:
+                    update = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(update)}\n\n"
+                except asyncio.TimeoutError:
+                    yield f": keepalive\n\n"
+        except asyncio.CancelledError:
+            logger.info(f"🦌 SSE stream cancelled by client {session_id}")
+        except GeneratorExit:
+            logger.info(f"🦌 SSE stream closed for {session_id}")
+        finally:
+            status_updater.remove_sse_client(queue)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+    )
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True, log_level="info")

@@ -2,7 +2,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from pipeline.state import PipelineState
 from pipeline.agents.manager_agent import make_manager_agent, create_manager_agent
 from pipeline.agents.compliance_coordinator import create_compliance_coordinator
-from pipeline.update import send_pipeline_update, PipelineStatus
+from pipeline.update import send_pipeline_update
+from pipeline.messages import PipelineStatus
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage
 from mcp_clients.client import get_resources
@@ -108,7 +109,6 @@ async def build_pipeline():
     async def compliance_node(state: PipelineState) -> PipelineState:
         """Node for running compliance assessment with specialized agents"""
         logger.info("🦌 🚀 COMPLIANCE NODE STARTED")
-        await send_pipeline_update(state, PipelineStatus.CONDUCTING_COMPLIANCE)
         document_summary = state.get("document_summary")
         
         if not document_summary:
@@ -137,6 +137,8 @@ async def build_pipeline():
             state["compliance_results"] = compliance_results
             logger.info(f"🦌 ✅ COMPLIANCE NODE COMPLETED: {compliance_results.get('status')}")
             logger.info(f"🦌 📈 Results: {compliance_results.get('summary', {}).get('completed_assessments', 0)}/{compliance_results.get('summary', {}).get('total_subparts', 0)} assessments completed")
+            
+            await send_pipeline_update(state, PipelineStatus.CONDUCTING_COMPLIANCE)
             
         except Exception as e:
             logger.error(f"❌ COMPLIANCE NODE ERROR: {type(e).__name__}: {e}")
@@ -176,19 +178,41 @@ async def build_pipeline():
         logger.info("⏭️ SKIPPING COMPLIANCE - going directly to manager")
         return "manager"
 
+    async def start_node(state: PipelineState) -> PipelineState:
+        """Initial pipeline start node"""
+        logger.info("🦌 PIPELINE STARTED")
+        await send_pipeline_update(state, PipelineStatus.STARTED)
+        return state
+    
+    async def summarize_pages_node(state: PipelineState) -> PipelineState:
+        """Node for summarizing document pages"""
+        logger.info("🦌 SUMMARIZING PAGES NODE STARTED")
+        await send_pipeline_update(state, PipelineStatus.SUMMARIZING_PAGES)
+        # Simulate page summarization work here
+        await send_pipeline_update(state, PipelineStatus.PAGES_SUMMARIZED)
+        return state
+    
     async def document_summary_node(state: PipelineState) -> PipelineState:
         """Node for creating document summary from pages"""
         logger.info("🦌 DOCUMENT SUMMARY NODE STARTED")
-        await send_pipeline_update(state, PipelineStatus.DOCUMENT_SUMMARIZED)
+        await send_pipeline_update(state, PipelineStatus.DOCUMENT_SUMMARIZING)
+        # Simulate document summary generation work here
+        await send_pipeline_update(state, PipelineStatus.DOCUMENT_SUMMARY_GENERATED)
         return state
     
     # Add nodes to graph
+    graph.add_node("start", start_node)
+    graph.add_node("summarize_pages", summarize_pages_node)
     graph.add_node("document_summary", document_summary_node)
     graph.add_node("compliance", compliance_node)
     graph.add_node("manager", manager_node)
     
     # Set entry point
-    graph.set_entry_point("document_summary")
+    graph.set_entry_point("start")
+    
+    # Add edges for proper flow
+    graph.add_edge("start", "summarize_pages")
+    graph.add_edge("summarize_pages", "document_summary")
     
     # Add conditional edges
     graph.add_conditional_edges(
