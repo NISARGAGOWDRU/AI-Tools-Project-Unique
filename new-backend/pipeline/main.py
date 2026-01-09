@@ -57,6 +57,68 @@ async def build_pipeline():
 
     async def manager_node(state: PipelineState) -> PipelineState:
         logger.info("💼 MANAGER NODE STARTED")
+        
+        # Check for detailed check first
+        detailed_check_result = state.get("detailed_check_result")
+        if detailed_check_result:
+            logger.info("🎯 DETAILED CHECK MODE: Formatting single subpart result")
+            page_info = state.get("detailed_check_page")
+            subpart = state.get("detailed_check_subpart")
+            
+            # Format page info for display
+            if isinstance(page_info, list):
+                page_display = f"pages {page_info}"
+            else:
+                page_display = f"page {page_info}"
+            
+            # Get compliance explanation and log full content
+            explanation = detailed_check_result.get("compliance_explanation", "")
+            score = detailed_check_result.get("compliance_score", 0)
+            
+            # Log the full explanation content for debugging
+            logger.info(f"📋 FULL COMPLIANCE EXPLANATION FOR {subpart}:")
+            
+            # Extract structured sections from explanation
+            satisfied_reqs = "Analysis not available"
+            missing_reqs = "Analysis not available"
+            recommendations = "No specific recommendations provided"
+            
+            if explanation:
+                # Extract satisfied requirements
+                import re
+                satisfied_match = re.search(r'\*\*REQUIREMENTS\s+MET\*\*([^*]+?)(?=\*\*|$)', explanation, re.IGNORECASE | re.DOTALL)
+                if satisfied_match:
+                    satisfied_reqs = satisfied_match.group(1).strip()
+                
+                # Extract missing requirements
+                missing_match = re.search(r'\*\*REQUIREMENTS\s+NOT\s+MET\*\*([^*]+?)(?=\*\*|$)', explanation, re.IGNORECASE | re.DOTALL)
+                if missing_match:
+                    missing_reqs = missing_match.group(1).strip()
+                
+                # Extract recommendations
+                rec_match = re.search(r'\*\*RECOMMENDATIONS\*\*([^*]+?)(?=\*\*|$)', explanation, re.IGNORECASE | re.DOTALL)
+                if rec_match:
+                    recommendations = rec_match.group(1).strip()
+            
+            # Format for frontend with structured output
+            state["final_compliance_summary"] = {
+                "detailed_check": True,
+                "page_number": page_info,
+                "subpart": subpart,
+                "overall_score": score,
+                "compliance_status": "Compliant" if score >= 70 else "Non-Compliant",
+                "satisfied_requirements": satisfied_reqs,
+                "missing_requirements": missing_reqs,
+                "recommendations": recommendations,
+                "detailed_analysis": explanation[:1500] if explanation else "No detailed analysis available",
+                "status": "completed"
+            }
+            
+            await send_pipeline_update(state, PipelineStatus.COMPLETED)
+            logger.info(f"✅ DETAILED CHECK FORMATTED: {subpart} on {page_display} - Score: {score}")
+            return state
+        
+        # Regular flow for full compliance
         prompt = state.get("user_input", "")
         document_summary = state.get("document_summary")
         compliance_results = state.get("compliance_results")
@@ -228,4 +290,7 @@ async def build_pipeline():
     
     # Compile graph
     memory = MemorySaver()
-    return graph.compile(checkpointer=memory)
+    compiled_graph = graph.compile(checkpointer=memory)
+    
+    # Return both pipeline and compliance coordinator
+    return compiled_graph, compliance_coordinator
