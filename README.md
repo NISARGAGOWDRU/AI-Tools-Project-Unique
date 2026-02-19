@@ -1,20 +1,50 @@
-<<<<<<< HEAD
- # AI Tools Suite — Final Year Project
+# AI Tools Suite — Final Year Project
 
 This repository bundles several Streamlit-based AI utilities built for a final-year project. The tools showcase integrations with large-model APIs and image-generation services to automate common content tasks.
 
-Highlights
-- Text-to-PowerPoint (`text_to_ppt.py`) — converts a topic and slide count into a downloadable PPTX using a generative model.
-- Chatbot (`chatbot.py`) — simple Streamlit chatbot powered by the generative API.
-- Blog generator, Email assistant, Quote generator, Resume creator, Social media post helper, Image→Text, Text→Image, Text→Audio, Text→Video — each implemented as a small Streamlit app in the project root.
+## Project Overview
 
-Assets
-- Visual assets (video/screenshots) are stored in `assets/` (copied from your machine). Example files you included:
-  - `assets\clg ml proj.mp4`
-  - `assets\Screenshot 2026-02-18 123345.png`
-  - `assets\Screenshot 2026-02-18 123423.png`
-  - `assets\Screenshot 2026-02-18 123412.png`
-  - `assets\Screenshot 2026-02-18 123401.png`
+A comprehensive suite of AI-powered applications designed to streamline content creation and automation. Each tool leverages cutting-edge generative AI and machine learning models to enhance productivity.
+
+## Features & Tools
+
+### 📊 Content Generation
+- **Text-to-PowerPoint** (`text_to_ppt.py`) — Converts topics and specifications into fully formatted PPTX presentations using generative AI
+- **Blog Generator** (`blog_creator.py`) — Creates engaging blog posts with SEO optimization
+- **Email Generator** (`email_generator.py`) — Generates professional and personalized emails
+- **Resume Creator** (`resume_creator.py`) — Builds optimized resumes from user input
+- **Social Media Post Generator** (`social_media_post_generator.py`) — Creates platform-specific social media content
+
+### 💬 Communication & Interaction
+- **Chatbot** (`chatbot.py`) — Interactive Streamlit chatbot powered by generative AI APIs
+- **Language Translation** (`Language_Translation.py`) — Multi-language translation capabilities
+
+### 🎨 Media Processing
+- **Image to Text** (`image_to_text.py`) — Extracts and analyzes text from images using OCR/vision models
+- **Text to Image** (`text_to_image.py`) — Generates images from text descriptions
+- **Text to Audio** (`text_to_audio.py`) — Converts text to natural-sounding audio
+- **Text to Video** (`text_to_video.py`) — Creates videos from text prompts
+
+### 🎯 Utilities
+- **Quote Generator** (`quote_generator.py`) — Generates inspirational and contextual quotes
+- **Frontend** (`frontend.py`) — Main UI dashboard for all tools
+- **Language Translation** — Multi-language support
+
+## Demo & Screenshots
+
+### Project Demo Video
+![Demo Video](assets/clg%20ml%20proj.mp4)
+
+### Application Screenshots
+
+**Screenshot 1: Main Interface**
+![Screenshot 1](assets/Screenshot%202026-02-18%20123345.png)
+
+**Screenshot 2: Feature Overview**
+![Screenshot 2](assets/Screenshot%202026-02-18%20123423.png)
+
+**Screenshot 3: Content Generation**
+![Screenshot 3](assets/Screenshot%202026-02-18%20123412.png)
 
 Quick start (development)
 1. Create and activate a Python virtual environment and install requirements (example):
