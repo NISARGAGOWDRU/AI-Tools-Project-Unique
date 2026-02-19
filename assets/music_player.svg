@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="600" height="400" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="400" fill="#1a1a1a"/>
+  <circle cx="300" cy="150" r="80" fill="#e91e63"/>
+  <text x="300" y="170" font-size="100" text-anchor="middle" font-family="Arial">
+    🎵
+  </text>
+  <text x="300" y="280" font-size="48" font-weight="bold" fill="#e91e63" text-anchor="middle" font-family="Arial">
+    Music Player
+  </text>
+  <text x="300" y="340" font-size="24" fill="#ffffff" text-anchor="middle" font-family="Arial">
+    Android App • Java
+  </text>
+</svg>

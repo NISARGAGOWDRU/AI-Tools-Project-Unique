@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="400" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="400" fill="#34495e"/>
+  <text x="400" y="100" font-size="60" font-weight="bold" fill="#3498db" text-anchor="middle" font-family="Arial">
+    👤 Face Recognition System
+  </text>
+  <text x="400" y="200" font-size="32" fill="#ecf0f1" text-anchor="middle" font-family="Arial">
+    98% Detection • Automated Attendance
+  </text>
+  <text x="400" y="280" font-size="24" fill="#2ecc71" text-anchor="middle" font-family="Arial">
+    30 FPS Real-time Processing
+  </text>
+  <rect x="100" y="310" width="600" height="60" fill="#2c3e50" rx="5"/>
+  <text x="400" y="345" font-size="20" fill="#ffffff" text-anchor="middle" font-family="Arial">
+    OpenCV • Python • SQLite
+  </text>
+</svg>

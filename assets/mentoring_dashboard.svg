@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1000" height="500" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1000" height="500" fill="#1e3a5f"/>
+  <text x="500" y="120" font-size="64" font-weight="bold" fill="#27ae60" text-anchor="middle" font-family="Arial">
+    👨‍🎓 Mentoring Management System
+  </text>
+  <text x="500" y="220" font-size="32" fill="#ecf0f1" text-anchor="middle" font-family="Arial">
+    Connect. Learn. Grow.
+  </text>
+  <g fill="#27ae60">
+    <rect x="150" y="280" width="180" height="80" rx="5"/>
+    <text x="240" y="330" font-size="18" fill="#ffffff" text-anchor="middle" font-family="Arial">Scheduling</text>
+    
+    <rect x="410" y="280" width="180" height="80" rx="5"/>
+    <text x="500" y="330" font-size="18" fill="#ffffff" text-anchor="middle" font-family="Arial">Messaging</text>
+    
+    <rect x="670" y="280" width="180" height="80" rx="5"/>
+    <text x="760" y="330" font-size="18" fill="#ffffff" text-anchor="middle" font-family="Arial">Analytics</text>
+  </g>
+  <rect x="100" y="410" width="800" height="60" fill="#2d5a7b" rx="5"/>
+  <text x="500" y="445" font-size="20" fill="#ffffff" text-anchor="middle" font-family="Arial">
+    PHP • MySQL • Bootstrap
+  </text>
+</svg>
